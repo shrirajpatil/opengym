@@ -27,9 +27,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HTTP_PROVIDERS, baseUrlFor } from './core/providers.js';
+import store from '../store/index.js';
 
 const DATA = process.env.DATA_DIR || '/data';
-const FILE = path.join(DATA, 'coach.json');
 
 /* Where a provider runtime that manages its own credential cache is allowed to keep it.
  *
@@ -94,9 +94,15 @@ const LOG_MAX = 100;
 /* ---------- at-rest encryption ---------- */
 
 let keyCache = null;
+// Read lazily and synchronously from DATA_DIR/secret, same as always — including under
+// STORE=postgres. server.js's boot sequence resolves the secret through the store (postgres:
+// a real query; file: the same fs read this does) and mirrors it into DATA_DIR/secret before
+// the HTTP server starts, specifically so this file — and coach/handle.js, which reads the
+// same path — never need to know which backend is active or become async to find out. DATA_DIR
+// under postgres is an ordinary (if ephemeral) container path, so writing one small file there
+// costs nothing; it is not treated as persistent storage for anything else.
 function key() {
   if (keyCache) return keyCache;
-  // Read the secret lazily: server.js creates it at boot, and this module may be imported first.
   const secret = fs.readFileSync(path.join(DATA, 'secret'), 'utf8').trim();
   keyCache = Buffer.from(crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from('opengym-coach-v1'), 32));
   return keyCache;
@@ -116,18 +122,17 @@ export function decrypt(blob) {
   } catch { return null; }   // wrong key (restored ./data without the secret), or tampered file
 }
 
-/* ---------- load / save ---------- */
-
+/* ---------- load / save ----------
+   Both stay synchronous — see store/interface.js's header for why: many tests call these (and
+   everything built on them) without awaiting, and jobs.enqueue() has to be able to synchronously
+   throw off a value load() just returned. `cache` here is exactly the module-level cache this
+   file always kept; store.coachConfigLoadRaw()/coachConfigSaveRaw() below are file.js's plain
+   fs.*Sync calls under STORE=file, and the write-through Postgres cache under STORE=postgres —
+   either way this function's own shape (the DEFAULTS merge, the v1.2.11 migration) is unchanged. */
 let cache = null;
-function atomicWrite(file, content, mode) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, content, mode ? { mode } : undefined);
-  fs.renameSync(tmp, file);
-}
 export function load() {
   if (cache) return cache;
-  let stored = {};
-  try { stored = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch { /* absent = feature off */ }
+  const stored = store.coachConfigLoadRaw() || {};
   cache = { ...DEFAULTS, ...stored, caps: { ...DEFAULTS.caps, ...(stored.caps || {}) } };
 
   // Until v1.2.11 this file held ONE credential, ONE model and ONE binding — for whichever
@@ -157,7 +162,7 @@ export function load() {
 export function save(patch) {
   const next = { ...load(), ...patch };
   cache = next;
-  atomicWrite(FILE, JSON.stringify(next, null, 2), 0o600);
+  store.coachConfigSaveRaw(next);
   return next;
 }
 // Test seam: forget the in-memory copy so the next load() re-reads from disk.
@@ -193,21 +198,13 @@ export function saveOptions(provider, patch) {
 /* Deliberately its own file rather than a field on state-<uid>.json. Profile state syncs across
    devices and travels in the user's JSON export; a credential that rides along in a backup is
    the same class of mistake as a token inside the directory the README tells you to archive. */
-const uidSafe = uid => /^[A-Za-z0-9_-]{1,64}$/.test(String(uid || ''));
-export function profileAuthFile(uid) {
-  if (!uidSafe(uid)) throw new Error('bad profile id');
-  return path.join(DATA, `coach-auth-${uid}.json`);
-}
-export function loadProfileAuth(uid) {
-  try { return JSON.parse(fs.readFileSync(profileAuthFile(uid), 'utf8')); } catch { return null; }
-}
-export function saveProfileAuth(uid, auth) {
-  atomicWrite(profileAuthFile(uid), JSON.stringify(auth, null, 2), 0o600);
-  return auth;
-}
-export function clearProfileAuth(uid) {
-  try { fs.unlinkSync(profileAuthFile(uid)); return true; } catch { return false; }
-}
+// Both backends validate the uid and throw 'bad profile id' the same way (credential.test.js
+// pins this against the file backend's real path shape; postgres.js has no filesystem path, so
+// its version of this function exists only for that same validation/error-message parity).
+export function profileAuthFile(uid) { return store.coachProfileAuthFile(uid); }
+export function loadProfileAuth(uid) { return store.coachProfileAuthRead(uid); }
+export function saveProfileAuth(uid, auth) { return store.coachProfileAuthWrite(uid, auth); }
+export function clearProfileAuth(uid) { return store.coachProfileAuthClear(uid); }
 
 /* ---------- which credential pays for this job ---------- */
 

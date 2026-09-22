@@ -214,6 +214,41 @@ API keys for the HTTPS providers (Anthropic, OpenAI, Gemini, a compatible endpoi
 other way round: they are in `./data/coach.json`, encrypted with `./data/secret`, so they *are*
 in this archive — and unreadable without the secret next to them, like everything else in it.
 
+## 6b. Postgres storage (Render, Supabase, or anywhere with no persistent disk)
+
+`./data` is a plain folder, which is fine on a VPS or NAS but doesn't exist on a platform whose
+free tier gives a container no persistent disk (Render, some Supabase-adjacent hosts) — every
+deploy would wipe `./data` and sign everyone out. `STORE=postgres` swaps the flat-JSON-file
+backend for a Postgres database and needs nothing else about the app to change:
+
+```bash
+STORE=postgres
+DATABASE_URL=postgres://user:pass@host:5432/dbname
+```
+
+Apply the schema once, by hand, before the first boot:
+
+```bash
+psql "$DATABASE_URL" -f api/store/schema.sql
+```
+
+(the file is also the schema reference — table by table, with the reasoning behind each one).
+Leave `STORE` unset (or `STORE=file`) and nothing here applies: that is the default, and it is
+exactly the `./data` folder this guide has described so far.
+
+**One durability tradeoff worth knowing.** Workout data — the thing you actually care about
+losing — has no gap: every `PUT /api/data` is a single atomic SQL statement on the request
+itself, same as the file backend's atomic-write-then-rename is on the request itself. What *is*
+eventually-consistent is the AI Coach's own bookkeeping (today's job-usage count, a pending
+proposal, per-profile settings) — kept in memory for speed and flushed to Postgres in the
+background rather than awaited inline, because several of Coach's functions are called
+synchronously by code that needs to keep working exactly as before. If the process restarts in
+the handful of seconds between an in-memory update and its background write landing, that
+update is lost — in practice, someone could occasionally get one extra Coach job around a
+restart. This is accepted on purpose: the daily cap is a soft usage limit, not billing or
+security, and it is not worth slowing every Coach interaction down to close a gap that small.
+See the comment at the top of `api/store/postgres.js` for the full reasoning.
+
 ## 7. Notifications
 
 openGym can push two kinds of alert to your phone/desktop, even when the app isn't open:

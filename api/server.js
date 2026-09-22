@@ -19,6 +19,7 @@ import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
 import { dayReminderPush, restTimerPush, testPush } from './push-messages.js';
 import { verifyError } from './verify-error.js';
+import store, { init as initStore, STORE_KIND } from './store/index.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -58,37 +59,25 @@ fs.mkdirSync(DATA, { recursive: true });
 const lock = f => { try { fs.chmodSync(path.join(DATA, f), 0o600); } catch { /* not present yet, or host says no */ } };
 ['secret', 'db.json', 'coach.json'].forEach(lock);
 
-/* ---------- secret + db ---------- */
-const secretFile = path.join(DATA, 'secret');
-if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
-
-const dbFile = path.join(DATA, 'db.json');
-let db = { users: [], creds: [], subs: [], invites: [] };
-try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
-db.subs = db.subs || [];
-db.invites = db.invites || [];
-const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
-// 0600: db.json holds passkey credential material. It used to be covered by a blanket 0700 on
-// the whole directory; now that the directory stays traversable, the file carries its own mode.
-function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2), 0o600); }
-function atomicWrite(file, content, mode) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, content, mode ? { mode } : undefined);
-  fs.renameSync(tmp, file);
-}
+/* ---------- secret + db ----------
+ * Resolved through the store (store/index.js — file.js's fs reads under STORE=file, real
+ * queries against Postgres under STORE=postgres) inside boot() at the bottom of this file,
+ * awaited once before the HTTP server starts listening. `db` stays an in-memory object mutated
+ * in place and flushed whole with saveDb(), exactly as it always was — server.js is never
+ * imported by a test (every server-*.test.js spawns it and talks HTTP only), so nothing here
+ * needs to stay synchronous; this keeps the rewrite a mechanical "await the store call" rather
+ * than restructuring every route. coach/config.js and coach/handle.js still read DATA_DIR/secret
+ * directly and synchronously (they ARE imported by tests) — boot() mirrors SECRET into that
+ * file so they see the same value under either backend without becoming async themselves. */
+let SECRET, db;
 const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
-function readState(uid) {
-  try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
-}
+async function readState(uid) { return store.getState(uid); }
+async function saveDb() { await store.saveDb(db); }
+const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
-const vapidFile = path.join(DATA, 'vapid.json');
 let vapid;
-try { vapid = JSON.parse(fs.readFileSync(vapidFile, 'utf8')); }
-catch { vapid = webpush.generateVAPIDKeys(); fs.writeFileSync(vapidFile, JSON.stringify(vapid), { mode: 0o600 }); }
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || (SECURE ? ORIGIN : 'mailto:admin@localhost');
-webpush.setVapidDetails(VAPID_SUBJECT, vapid.publicKey, vapid.privateKey);
 
 /* A push subscription's `endpoint` is a URL this server connects out to, chosen by whoever is
    signed in — so without a check /api/push/* is a request-forgery lever, and the api container
@@ -227,7 +216,7 @@ async function sendPush(userId, payload, deviceId) {
     }
   };
   await Promise.all(Array.from({ length: Math.min(PUSH_CONCURRENCY, subs.length) }, worker));
-  if (dirty) saveDb();
+  if (dirty) await saveDb();
 }
 
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
@@ -300,45 +289,55 @@ const minutesLate = (time, now) => hhmmToMin(now.hhmm) - hhmmToMin(time);
 // The tick reads every subscribed user's state file every 10 s. Most of those files do not
 // change between ticks; a stat is far cheaper than a read and a parse of a state that can be
 // megabytes, and it keeps the tick short — a slow tick was one more way to miss the minute.
+// The stat-based short-circuit only makes sense against a real filesystem, so it is skipped
+// entirely under STORE=postgres (readState() there is already one indexed query, not a parse
+// of a file that could be megabytes, so the tick stays cheap without it).
 const stateCache = new Map(); // uid -> { mtimeMs, size, S }
-function readStateCached(uid) {
+async function readStateCached(uid) {
+  if (STORE_KIND !== 'file') return readState(uid);
   let st;
   try { st = fs.statSync(stateFile(uid)); } catch { stateCache.delete(uid); return null; }
   const hit = stateCache.get(uid);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.S;
-  const S = readState(uid);
+  const S = await readState(uid);
   stateCache.set(uid, { mtimeMs: st.mtimeMs, size: st.size, S });
   return S;
 }
-setInterval(() => {
-  for (const user of db.users) {
-    if (!db.subs.some(s => s.userId === user.id)) continue;
-    // One user's state file is one user's problem: a shape this tick cannot read is logged and
-    // skipped, not allowed to take the process — and everyone else's reminders — down with it.
-    // PUT /api/data refuses the obvious shapes, but a file already on disk answers to nobody.
-    try {
-      const S = readStateCached(user.id);
-      if (!S?.reminder?.on) continue;
-      const now = userNow(S.reminder.tz || 'UTC');
-      if (!now) continue;
-      const late = minutesLate(S.reminder.time, now);
-      if (!(late >= 0 && late <= REMINDER_WINDOW_MIN)) continue;
-      if (user.lastReminder === now.date) continue;
-      if ((S.workouts || []).some(w => w.d === now.date)) continue;
-      const rid = effectiveRoutineId(S, now.date);
-      if (!rid) continue; // rest day — nothing planned
-      const routine = (S.routines || []).find(r => r.id === rid);
-      console.log('reminder firing', user.id, rid);
-      user.lastReminder = now.date;
-      saveDb();
-      sendPush(user.id, dayReminderPush(S.lang, routine));
-    } catch (e) {
-      console.error('reminder tick', user.id, e);
+// Registered from boot() (bottom of file), after `db` has loaded — this used to be a bare
+// setInterval at module scope, safe only because db.users was populated synchronously by the
+// time any interval could fire. Now that loading db is a boot()-awaited store call, starting
+// the interval before db exists would throw on the first tick (as low as 50ms in tests).
+function startReminderTick() {
+  setInterval(async () => {
+    for (const user of db.users) {
+      if (!db.subs.some(s => s.userId === user.id)) continue;
+      // One user's state file is one user's problem: a shape this tick cannot read is logged and
+      // skipped, not allowed to take the process — and everyone else's reminders — down with it.
+      // PUT /api/data refuses the obvious shapes, but a file already on disk answers to nobody.
+      try {
+        const S = await readStateCached(user.id);
+        if (!S?.reminder?.on) continue;
+        const now = userNow(S.reminder.tz || 'UTC');
+        if (!now) continue;
+        const late = minutesLate(S.reminder.time, now);
+        if (!(late >= 0 && late <= REMINDER_WINDOW_MIN)) continue;
+        if (user.lastReminder === now.date) continue;
+        if ((S.workouts || []).some(w => w.d === now.date)) continue;
+        const rid = effectiveRoutineId(S, now.date);
+        if (!rid) continue; // rest day — nothing planned
+        const routine = (S.routines || []).find(r => r.id === rid);
+        console.log('reminder firing', user.id, rid);
+        user.lastReminder = now.date;
+        await saveDb();
+        sendPush(user.id, dayReminderPush(S.lang, routine));
+      } catch (e) {
+        console.error('reminder tick', user.id, e);
+      }
     }
-  }
-// Checked every 10s (not 60s) — ticks aren't aligned to the top of the minute, so a 60s
-// interval could sit on your target minute for up to 59s before noticing. 10s caps that at ~9s.
-}, REMINDER_TICK_MS).unref();
+  // Checked every 10s (not 60s) — ticks aren't aligned to the top of the minute, so a 60s
+  // interval could sit on your target minute for up to 59s before noticing. 10s caps that at ~9s.
+  }, REMINDER_TICK_MS).unref();
+}
 
 /* ---------- sessions (signed cookie) ---------- */
 function sign(payload) {
@@ -560,7 +559,6 @@ const AUDIT_MAX = Math.max(0, +(process.env.AUDIT_MAX || 5000) || 0);     // 0 =
 const AUDIT_DAYS = Math.max(0, +(process.env.AUDIT_DAYS || 90) || 0);     // 0 = no age cap
 const AUDIT_IP = /^full$/i.test(process.env.AUDIT_IP || '') ? 'full'
   : /^(1|true|yes|on|net)$/i.test(process.env.AUDIT_IP || '') ? 'net' : 'off';
-const auditFile = path.join(DATA, 'audit.log');
 let auditSeq = 0;      // never reset, not even by a clear — a wiped log leaves a visible id gap
 let auditCount = 0;
 
@@ -587,16 +585,7 @@ function clientIp(req) {
   return g ? g + '::/48' : null;
 }
 
-function auditLines() {
-  let text;
-  try { text = fs.readFileSync(auditFile, 'utf8'); } catch { return []; }
-  const rows = [];
-  for (const line of text.split('\n')) {
-    if (!line) continue;
-    try { const r = JSON.parse(line); if (r && r.id && r.ev) rows.push(r); } catch { /* torn line */ }
-  }
-  return rows;
-}
+async function auditLines() { return store.readAuditRows(); }
 // Retention is a cap, not an archive: age first, then the newest AUDIT_MAX of what's left.
 function auditKeep(rows) {
   let out = rows;
@@ -604,17 +593,20 @@ function auditKeep(rows) {
   if (AUDIT_MAX && out.length > AUDIT_MAX) out = out.slice(out.length - AUDIT_MAX);
   return out;
 }
-function compactAudit() {
-  const rows = auditLines();
+async function compactAudit() {
+  const rows = await auditLines();
   for (const r of rows) if (+r.id > auditSeq) auditSeq = +r.id;
   const keep = auditKeep(rows);
   auditCount = keep.length;
   if (keep.length === rows.length) return;
-  try { atomicWrite(auditFile, keep.map(r => JSON.stringify(r)).join('\n') + (keep.length ? '\n' : '')); }
-  catch (e) { console.error('audit compact failed', e.message); }
+  await store.writeAuditRows(keep);
 }
 
-// Never throws: a log that can't be written must not break signing in.
+// Never throws out to the caller: a log that can't be written must not break signing in. Fired
+// without awaiting at every call site (as it always was, when the write was a synchronous
+// fs.appendFileSync) — the store's own appendAudit is async now (a real query under
+// STORE=postgres) but audit() itself stays a plain, non-blocking call from a route's point of
+// view, catching its own failure exactly as the old try/catch around fs.appendFileSync did.
 function audit(req, ev, f = {}) {
   if (!AUDIT_ON) return;
   const rec = { id: ++auditSeq, ts: Date.now(), ev, ok: f.ok !== false };
@@ -627,14 +619,9 @@ function audit(req, ev, f = {}) {
   if (f.msg) rec.msg = String(f.msg).slice(0, 120);
   const ip = clientIp(req);
   if (ip) rec.ip = ip;
-  try { fs.appendFileSync(auditFile, JSON.stringify(rec) + '\n'); }
-  catch (e) { return console.error('audit write failed', e.message); }
+  store.appendAudit(rec).catch(e => console.error('audit write failed', e.message));
   // Amortized: a 5000-event cap rewrites the file once per ~1250 events.
-  if (AUDIT_MAX && ++auditCount > AUDIT_MAX * 1.25) compactAudit();
-}
-if (AUDIT_ON) {
-  compactAudit();                                // prune on boot, seed auditSeq/auditCount
-  setInterval(compactAudit, 3600000).unref();    // honour AUDIT_DAYS on an idle instance too
+  if (AUDIT_MAX && ++auditCount > AUDIT_MAX * 1.25) compactAudit().catch(e => console.error('audit compact failed', e.message));
 }
 
 /* ---------- routes ---------- */
@@ -726,7 +713,7 @@ const routes = {
       counter: credential.counter || 0,
       transports: body.credential?.response?.transports || []
     });
-    saveDb();
+    await saveDb();
     audit(req, 'auth.register.ok', { user, msg: invite ? invite.code : null });
     json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
   },
@@ -778,7 +765,7 @@ const routes = {
       return json(res, 400, { error: 'not verified' });
     }
     cred.counter = verification.authenticationInfo.newCounter;
-    saveDb();
+    await saveDb();
     const user = db.users.find(u => u.id === cred.userId);
     if (!user) {
       audit(req, 'auth.login.fail', { ok: false, uid: cred.userId, msg: 'user-missing' });
@@ -810,7 +797,7 @@ const routes = {
     user.sv = sessionVersion(user) + 1;
     // An unredeemed pairing code is a session-in-waiting for this account; it goes too.
     for (const [k, v] of pairings) if (v.uid === user.id) pairings.delete(k);
-    saveDb();
+    await saveDb();
     audit(req, 'auth.logout.all', { user });
     json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie });
   },
@@ -852,7 +839,7 @@ const routes = {
   'GET /api/data': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    const state = readState(user.id);
+    const state = await readState(user.id);
     json(res, 200, { state, rev: state?._rev || 0 });
   },
   // Just the revision: the client asks this every half minute while it is open and on every
@@ -861,7 +848,7 @@ const routes = {
   'GET /api/data/rev': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    json(res, 200, { rev: readState(user.id)?._rev || 0 });
+    json(res, 200, { rev: (await readState(user.id))?._rev || 0 });
   },
 
   'PUT /api/data': async (req, res) => {
@@ -879,17 +866,14 @@ const routes = {
     // push would silently drop that write. The current document travels back with the 409, so
     // the client can merge and try again without a second request. No `baseRev` (a client from
     // before revisions, or a deliberate replace such as a backup import) overwrites, as before.
-    // readState and atomicWrite are synchronous with nothing awaited between them, so the
-    // compare-and-write is atomic for this process.
-    const cur = readState(user.id);
-    const curRev = cur?._rev || 0;
-    if (body.baseRev != null && body.baseRev !== curRev) {
-      return json(res, 409, { error: 'conflict', rev: curRev, state: cur });
-    }
+    // store.putState is the CAS write itself — a single atomic fs write for file.js (nothing
+    // awaited between its read and its write, same invariant as before), a single atomic SQL
+    // UPDATE...RETURNING for postgres.js (see that file) — so there is no separate read here to
+    // race against another device's write the way there would be with a naive read-then-write.
     delete body.state.active;              // in-progress workouts stay device-local
-    body.state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored
-    atomicWrite(stateFile(user.id), JSON.stringify(body.state));
-    json(res, 200, { ok: true, ts: body.state._ts || null, rev: body.state._rev });
+    const result = await store.putState(user.id, body.state, body.baseRev ?? null);
+    if (!result.ok) return json(res, 409, { error: 'conflict', rev: result.rev, state: result.state });
+    json(res, 200, { ok: true, ts: body.state._ts || null, rev: result.rev });
   },
 
   'GET /api/push/public-key': async (req, res) => json(res, 200, { key: vapid.publicKey }),
@@ -920,7 +904,7 @@ const routes = {
       db.subs = db.subs.filter(s => !drop.has(s.endpoint));
     }
     db.subs.push({ userId: user.id, endpoint: sub.endpoint, keys, ...(deviceId ? { deviceId } : {}), created: prev?.created || new Date().toISOString() });
-    saveDb();
+    await saveDb();
     json(res, 200, { ok: true });
   },
 
@@ -939,14 +923,14 @@ const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     const body = await readBody(req);
     db.subs = db.subs.filter(s => !(s.userId === user.id && s.endpoint === body.endpoint));
-    saveDb();
+    await saveDb();
     json(res, 200, { ok: true });
   },
 
   'POST /api/push/test': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    await sendPush(user.id, testPush(readState(user.id)?.lang));
+    await sendPush(user.id, testPush((await readState(user.id))?.lang));
     json(res, 200, { ok: true });
   },
 
@@ -956,7 +940,7 @@ const routes = {
     const body = await readBody(req);
     const sec = Math.max(1, Math.min(3600, Math.round(+body.seconds || 0)));
     if (!sec) return json(res, 400, { error: 'seconds required' });
-    scheduleRestTimer(user.id, deviceIdOf(body.deviceId), sec, readState(user.id)?.lang);
+    scheduleRestTimer(user.id, deviceIdOf(body.deviceId), sec, (await readState(user.id))?.lang);
     json(res, 200, { ok: true });
   },
 
@@ -989,8 +973,8 @@ const routes = {
   // One row per user, cheap enough for a personal instance (reads each state file once).
   'GET /api/admin/users': async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const users = db.users.map(u => {
-      const S = readState(u.id) || {};
+    const users = await Promise.all(db.users.map(async u => {
+      const S = (await readState(u.id)) || {};
       const workouts = S.workouts || [];
       const last = workouts[workouts.length - 1];
       return {
@@ -1002,7 +986,7 @@ const routes = {
         hasPush: db.subs.some(s => s.userId === u.id),
         live: livePresence(u.id)
       };
-    });
+    }));
     json(res, 200, { users, invite_only: INVITE_ONLY, now: Date.now() });
   },
 
@@ -1012,7 +996,7 @@ const routes = {
     const id = new URL(req.url, 'http://x').searchParams.get('id');
     const u = db.users.find(x => x.id === id);
     if (!u) return json(res, 404, { error: 'no such user' });
-    const S = readState(u.id) || {};
+    const S = (await readState(u.id)) || {};
     json(res, 200, {
       user: { id: u.id, name: u.name, created: u.created || null, disabled: !!u.disabled, admin: isAdmin(u), invitedBy: u.invitedBy || null },
       unit: S.unit || 'kg',
@@ -1031,7 +1015,7 @@ const routes = {
     if (isAdmin(u)) return json(res, 400, { error: 'cannot disable an admin' });
     u.disabled = !!body.disabled;
     if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
-    saveDb();
+    await saveDb();
     audit(req, u.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: u });
     json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
   },
@@ -1056,7 +1040,7 @@ const routes = {
     do { code = crypto.randomBytes(8).toString('hex').toUpperCase(); } while (db.invites.some(i => i.code === code));
     const invite = { code, note: String(body.note || '').slice(0, 60), createdBy: admin.id, created: new Date().toISOString() };
     db.invites.push(invite);
-    saveDb();
+    await saveDb();
     audit(req, 'admin.invite.create', { user: admin, msg: code });
     json(res, 200, { invite });
   },
@@ -1068,7 +1052,7 @@ const routes = {
     if (!inv) return json(res, 404, { error: 'no such code' });
     if (inv.usedBy) return json(res, 400, { error: 'already used — cannot revoke' });
     db.invites = db.invites.filter(i => i.code !== inv.code);
-    saveDb();
+    await saveDb();
     audit(req, 'admin.invite.revoke', { user: admin, msg: inv.code });
     json(res, 200, { ok: true });
   },
@@ -1084,7 +1068,7 @@ const routes = {
     const limit = Math.max(1, Math.min(200, +q.get('limit') || 100));
     const before = +q.get('before') || Infinity;
     const cat = q.get('cat') || '';
-    let rows = auditKeep(auditLines()).reverse();
+    let rows = auditKeep(await auditLines()).reverse();
     if (cat === 'fail') rows = rows.filter(r => !r.ok);
     else if (cat) rows = rows.filter(r => String(r.ev).startsWith(cat + '.'));
     const page = rows.filter(r => r.id < before).slice(0, limit);
@@ -1103,7 +1087,7 @@ const routes = {
   // ./data/audit.log already is the export, in a format jq reads directly.
   'POST /api/admin/audit/clear': async (req, res) => {
     const admin = requireAdmin(req, res); if (!admin) return;
-    try { fs.unlinkSync(auditFile); } catch { /* nothing logged yet */ }
+    await store.deleteAuditFile();
     auditCount = 0;
     audit(req, 'admin.audit.clear', { user: admin });
     json(res, 200, { ok: true });
@@ -1116,57 +1100,99 @@ const routes = {
   ...coachRoutes({ json, readBody, readSession, requireAdmin })
 };
 
-/* ---------- Coach: boot recovery, notifications, scheduled reviews ---------- */
-// A job that was running when the process died is not coming back; say so rather than leaving
-// a spinner that never resolves.
-coachJobs.recoverOnBoot();
-// A ready proposal is the one Coach event worth a notification. Failures and "nothing to
-// change" stay silent on purpose (FR-38/E4).
-coachJobs.setProposalHook((uid, pending) => {
-  const n = (pending?.changes || []).length;
-  if (!n) return;
-  sendPush(uid, {
-    title: 'Your Coach has been reading',
-    body: n === 1 ? '1 suggestion after this week' : `${n} suggestions after this week`,
-    tag: 'coach-proposal', url: '#/coach'
-  });
-});
-startCadence({ users: () => db.users, userNow });
-startWarmup();
+/* ---------- boot ----------
+ * Everything that used to run as plain top-level statements — reading/creating the secret,
+ * loading db.json, generating VAPID keys, priming the reminder tick, Coach's boot recovery and
+ * scheduled jobs — now waits on the store, so it is sequenced here and awaited once before the
+ * HTTP server starts accepting requests. server.js is never imported by a test (every
+ * server-*.test.js spawns it as a child process and only ever sees it after this has run), so
+ * there is no synchronous-boot constraint here at all — unlike coach/config.js, which mirrors
+ * SECRET into a plain file below specifically so IT can stay synchronous.
+ *
+ * Under STORE=postgres, store.init() (called from initStore()) also hydrates the coach_config
+ * singleton into Coach's write-through cache before this returns — see store/postgres.js's
+ * header for why that one query is worth doing here rather than lazily on first request. */
+async function boot() {
+  await initStore();
 
-http.createServer(async (req, res) => {
-  // Same-origin (the deployed nginx-proxied web app) never triggers CORS, so this only matters
-  // for the paired mobile app calling in from its own WebView origin. It carries no cookie
-  // (auth is the Authorization header instead), so Allow-Credentials is deliberately never set —
-  // reflecting the origin here can't expose the cookie session to anyone.
-  const origin = req.headers.origin;
-  if (origin) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400'
+  SECRET = await store.getSecret();
+  // Mirrored to DATA_DIR/secret so coach/config.js and coach/handle.js — both imported
+  // directly by tests, so both have to stay synchronous — keep working unmodified under either
+  // backend. Under STORE=file this is a no-op (store.getSecret() already reads/writes this
+  // exact file); under STORE=postgres it turns the one Postgres-held secret into the same local
+  // file those two modules already knew how to read.
+  if (!fs.existsSync(path.join(DATA, 'secret')) || fs.readFileSync(path.join(DATA, 'secret'), 'utf8').trim() !== SECRET) {
+    fs.writeFileSync(path.join(DATA, 'secret'), SECRET, { mode: 0o600 });
+  }
+
+  db = await store.getDb();
+
+  vapid = await store.getVapid();
+  webpush.setVapidDetails(VAPID_SUBJECT, vapid.publicKey, vapid.privateKey);
+
+  if (AUDIT_ON) {
+    // Never fatal: "a log that can't be written must not break signing in" applies at boot too —
+    // a Postgres audit_log hiccup (bad grant, missing table) must not take the whole API down.
+    await compactAudit().catch(e => console.error('audit compact failed', e.message)); // prune on boot, seed auditSeq/auditCount
+    setInterval(() => compactAudit().catch(e => console.error('audit compact failed', e.message)), 3600000).unref();
+  }
+
+  startReminderTick();
+
+  /* ---------- Coach: boot recovery, notifications, scheduled reviews ---------- */
+  // A job that was running when the process died is not coming back; say so rather than leaving
+  // a spinner that never resolves.
+  coachJobs.recoverOnBoot();
+  // A ready proposal is the one Coach event worth a notification. Failures and "nothing to
+  // change" stay silent on purpose (FR-38/E4).
+  coachJobs.setProposalHook((uid, pending) => {
+    const n = (pending?.changes || []).length;
+    if (!n) return;
+    sendPush(uid, {
+      title: 'Your Coach has been reading',
+      body: n === 1 ? '1 suggestion after this week' : `${n} suggestions after this week`,
+      tag: 'coach-proposal', url: '#/coach'
     });
-    return res.end();
-  }
-  // A target that does not parse (`//`, `//api%2Fhealth`) is a bad request, not a server error —
-  // and the try below only covers the route handler, so it is refused here.
-  let url;
-  try { url = new URL(req.url, 'http://x'); }
-  catch { return json(res, 400, { error: 'bad request' }); }
-  const key = req.method + ' ' + url.pathname;
-  const handler = routes[key];
-  if (!handler) return json(res, 404, { error: 'not found' });
-  if (!csrfOk(req, key)) {
-    // Logged, not audited: this is reachable without a session, and an audit entry per attempt
-    // would let anyone fill the log. An operator who has genuinely mis-set ORIGIN needs to see
-    // the mismatch, and the container log is where they will look.
-    console.warn('refused cross-origin', key, 'origin=' + req.headers.origin, 'expected=' + ORIGIN);
-    return json(res, 403, { error: 'cross-origin request refused' });
-  }
-  try { await handler(req, res); }
-  catch (e) {
-    console.error(key, e);
-    if (!res.headersSent) json(res, 500, { error: 'server error' });
-  }
-}).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN})`));
+  });
+  startCadence({ users: () => db.users, userNow });
+  startWarmup();
+
+  http.createServer(async (req, res) => {
+    // Same-origin (the deployed nginx-proxied web app) never triggers CORS, so this only matters
+    // for the paired mobile app calling in from its own WebView origin. It carries no cookie
+    // (auth is the Authorization header instead), so Allow-Credentials is deliberately never set —
+    // reflecting the origin here can't expose the cookie session to anyone.
+    const origin = req.headers.origin;
+    if (origin) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400'
+      });
+      return res.end();
+    }
+    // A target that does not parse (`//`, `//api%2Fhealth`) is a bad request, not a server error —
+    // and the try below only covers the route handler, so it is refused here.
+    let url;
+    try { url = new URL(req.url, 'http://x'); }
+    catch { return json(res, 400, { error: 'bad request' }); }
+    const key = req.method + ' ' + url.pathname;
+    const handler = routes[key];
+    if (!handler) return json(res, 404, { error: 'not found' });
+    if (!csrfOk(req, key)) {
+      // Logged, not audited: this is reachable without a session, and an audit entry per attempt
+      // would let anyone fill the log. An operator who has genuinely mis-set ORIGIN needs to see
+      // the mismatch, and the container log is where they will look.
+      console.warn('refused cross-origin', key, 'origin=' + req.headers.origin, 'expected=' + ORIGIN);
+      return json(res, 403, { error: 'cross-origin request refused' });
+    }
+    try { await handler(req, res); }
+    catch (e) {
+      console.error(key, e);
+      if (!res.headersSent) json(res, 500, { error: 'server error' });
+    }
+  }).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN}, store=${STORE_KIND})`));
+}
+
+boot().catch(e => { console.error('boot failed', e); process.exit(1); });

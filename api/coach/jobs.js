@@ -27,14 +27,12 @@ import { handleFor } from './handle.js';
 import { fetchFor } from './node-fetch.js';
 import { canDropPrivileges, unprivilegedIds } from './adapters/spawn.js';
 import { cohortForPayload, invalidate as invalidateCohort } from './cohort.js';
+import store from '../store/index.js';
 
 // The prompt assembly, the plan fingerprint and the invoke→parse→validate→repair loop all
 // live in ./core now, where the phone can import them too. Re-exported so nothing that
 // reached them through this module has to move.
 export { hashPlan, buildPrompt };
-
-const DATA = process.env.DATA_DIR || '/data';
-const COACH_DIR = path.join(DATA, 'coach');
 
 // Five minutes by default. A local model on a small CPU box can legitimately need more; a
 // cloud API that needs more has a problem. COACH_JOB_TIMEOUT_MS overrides, never below one minute.
@@ -43,22 +41,20 @@ const MAX_CONCURRENT = 2;          // these are minutes-scale jobs on often-sing
 const PENDING_DAYS = 14;           // FR-33
 const HISTORY_MAX = 20;
 
-/* ---------- per-user store ---------- */
-
-const safe = uid => String(uid).replace(/[^a-zA-Z0-9_-]/g, '');
-const userFile = uid => path.join(COACH_DIR, safe(uid) + '.json');
+/* ---------- per-user store ----------
+   readUser/writeUser/clearUser/listUserIds/readState all stay synchronous — SYNC-REQUIRED, see
+   store/interface.js's header. store.coachUserRead/Write/Clear are file.js's old fs.*Sync calls
+   under STORE=file, and a write-through cache under STORE=postgres; store.getStateSync/
+   listUserIdsSync are the same shape for the server-owned state a review job reads mid-pipeline
+   (see postgres.js's own comment on why a lazy per-uid cache is enough there — this is reads
+   only, no write path lives here). */
 const EMPTY = { daily: null, current: null, pending: null, history: [] };
 
 export function readUser(uid) {
-  try { return { ...EMPTY, ...JSON.parse(fs.readFileSync(userFile(uid), 'utf8')) }; }
-  catch { return { ...EMPTY }; }
+  const rec = store.coachUserRead(uid);
+  return rec ? { ...EMPTY, ...rec } : { ...EMPTY };
 }
-function writeUser(uid, rec) {
-  fs.mkdirSync(COACH_DIR, { recursive: true, mode: 0o700 });
-  const file = userFile(uid), tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
-  fs.renameSync(tmp, file);
-}
+function writeUser(uid, rec) { store.coachUserWrite(uid, rec); }
 function patchUser(uid, patch) {
   const rec = { ...readUser(uid), ...patch };
   writeUser(uid, rec);
@@ -73,7 +69,7 @@ function patchUser(uid, patch) {
  *  and either way finishes without writing anything back (see finish). */
 export function clearUser(uid) {
   const { daily } = readUser(uid);
-  try { fs.unlinkSync(userFile(uid)); } catch { /* nothing to clear */ }
+  store.coachUserClear(uid);
   if (daily?.date === todayISO()) writeUser(uid, { ...EMPTY, daily });
   const queued = queue.findIndex(j => j.uid === uid);
   if (queued >= 0) { queue.splice(queued, 1); inflight.delete(uid); }
@@ -83,11 +79,7 @@ export function clearUser(uid) {
 }
 
 /** Every profile with a state file — the population a cohort is drawn from. */
-export function listUserIds() {
-  try {
-    return fs.readdirSync(DATA).filter(f => /^state-[a-zA-Z0-9_-]+\.json$/.test(f)).map(f => f.slice(6, -5));
-  } catch { return []; }
-}
+export function listUserIds() { return store.listUserIdsSync(); }
 
 /* ---------- "compare with others" opt-in ----------
    Held here, in the server's own per-profile record, rather than in the synced state: the
@@ -100,10 +92,7 @@ export function setShare(uid, share) {
   return !!share;
 }
 
-export function readState(uid) {
-  try { return JSON.parse(fs.readFileSync(path.join(DATA, 'state-' + safe(uid) + '.json'), 'utf8')); }
-  catch { return null; }
-}
+export function readState(uid) { return store.getStateSync(uid); }
 
 /* ---------- caps ---------- */
 
@@ -463,19 +452,20 @@ export async function testRun() {
  */
 export function recoverOnBoot() {
   let n = 0;
-  try {
-    for (const f of fs.readdirSync(COACH_DIR)) {
-      if (!f.endsWith('.json')) continue;
-      const uid = f.replace(/\.json$/, '');
-      const rec = readUser(uid);
-      if (!rec.current) continue;
-      writeUser(uid, {
-        ...rec, current: null,
-        history: [...(rec.history || []), { id: rec.current.id, kind: rec.current.kind, outcome: 'failed', errorClass: 'restart', at: Date.now() }].slice(-HISTORY_MAX)
-      });
-      n++;
-    }
-  } catch { /* no coach dir yet */ }
+  // store.coachListUserFiles(): every uid with a Coach record, under file.js a directory
+  // listing exactly as before; under postgres.js necessarily scoped to what THIS process has
+  // already cached (see that file's comment) — a Postgres-backed instance restarting mid-job
+  // still reports the restart honestly for uids it touches again, which is the only property
+  // this recovery message promises.
+  for (const uid of store.coachListUserFiles()) {
+    const rec = readUser(uid);
+    if (!rec.current) continue;
+    writeUser(uid, {
+      ...rec, current: null,
+      history: [...(rec.history || []), { id: rec.current.id, kind: rec.current.kind, outcome: 'failed', errorClass: 'restart', at: Date.now() }].slice(-HISTORY_MAX)
+    });
+    n++;
+  }
   if (n) console.log(`coach: cleared ${n} job(s) interrupted by restart`);
   return n;
 }
