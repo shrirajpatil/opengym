@@ -19,6 +19,11 @@ export default function Media({ ex, id, compact, minimizable }) {
   // on a white block. Now the still stands in for the animation, a neutral tile stands in for
   // both, and a tap tries again — no text, so nothing new to translate.
   const [failed, setFailed] = useState(null)
+  // Tracks whether the current src has actually painted yet. A CDN-backed build (VITE_GIF_BASE
+  // pointed off-origin) can take a real, visible moment, so a loading exercise gets the same
+  // neutral tile as a broken one rather than a blank/white rectangle until the network resolves.
+  // Keyed by src so switching still/animation (the tap-to-pause toggle) re-arms it correctly.
+  const [loadedSrc, setLoadedSrc] = useState(null)
   const gifSize = useStore(s => s.S.gifSize)
   const update = useStore(s => s.update)
   if (!ex.gif) return null
@@ -26,16 +31,20 @@ export default function Media({ ex, id, compact, minimizable }) {
   const mini = minimizable && gifSize === 'mini'
   const toggleSize = e => { e.stopPropagation(); update(s => { s.gifSize = mini ? 'full' : 'mini' }) }
   const showGif = playing && failed == null
+  const src = showGif ? gifSrc(ex) : imgSrc(ex)
+  const loading = failed !== 'all' && loadedSrc !== src
   const onError = () => setFailed(showGif ? 'gif' : 'all')
+  const onLoad = () => setLoadedSrc(src)
   const onTap = () => {
     if (failed) { setFailed(null); setPlaying(true); return }
     setPlaying(p => !p)
   }
   return (
-    <div className={'exmedia' + (compact ? ' compact' : '') + (mini ? ' mini' : '') + (failed === 'all' ? ' broken' : '')} id={id} onClick={onTap}>
+    <div className={'exmedia' + (compact ? ' compact' : '') + (mini ? ' mini' : '') + (failed === 'all' ? ' broken' : '') + (loading ? ' wk-media-loading' : '')} id={id} onClick={onTap}>
       {failed === 'all'
         ? <div className="exmedia-x"><Icon name="dumbbell" /></div>
-        : <img decoding="async" draggable={false} src={showGif ? gifSrc(ex) : imgSrc(ex)} alt={exerciseNameFor(ex)} onError={onError} />}
+        : <img decoding="async" draggable={false} src={src} alt={exerciseNameFor(ex)} onError={onError} onLoad={onLoad} />}
+      {loading && <div className="wk-media-skel" aria-hidden="true" />}
       {minimizable && (
         <button className="giftoggle" onClick={toggleSize}>
           <Icon name={mini ? 'expand' : 'minimize'} />{mini ? t('Expand') : t('Minimize')}
@@ -51,6 +60,12 @@ export default function Media({ ex, id, compact, minimizable }) {
 }
 
 export function Thumb({ ex }) {
+  const [loaded, setLoaded] = useState(false)
   if (!ex.img) return <div className="thumb thumb-x"><Icon name="dumbbell" /></div>
-  return <img className="thumb" loading="lazy" decoding="async" draggable={false} src={imgSrc(ex)} alt="" />
+  return (
+    <span className={'wk-thumb-wrap' + (loaded ? '' : ' wk-media-loading')}>
+      <img className="thumb" loading="lazy" decoding="async" draggable={false} src={imgSrc(ex)} alt="" onLoad={() => setLoaded(true)} />
+      {!loaded && <span className="wk-media-skel wk-thumb-skel" aria-hidden="true" />}
+    </span>
+  )
 }

@@ -33,10 +33,24 @@ server {
         # Nothing answers on that address outside Docker, and an unreachable resolver does not
         # fail fast — every /api request hangs until it times out. Anywhere else, set RESOLVER to
         # the DNS the platform actually provides: on Kubernetes that is the kube-dns/CoreDNS
-        # service address (`kubectl -n kube-system get svc kube-dns`, commonly 10.96.0.10).
+        # service address (`kubectl -n kube-system get svc kube-dns`, commonly 10.96.0.10); on a
+        # PaaS with no private networking between services (Render, and similar "each service
+        # gets one public HTTPS hostname" platforms) that is a public resolver (8.8.8.8, 1.1.1.1).
         resolver ${RESOLVER} valid=10s ipv6=off;
-        set $api_upstream http://${BACKEND}:${PORT};
+        # API_SCHEME/API_PORT_SUFFIX (web/Dockerfile defaults them to "" and ":3000") are what let
+        # this one template serve both shapes of "backend": a sibling container reachable by name
+        # over plain HTTP on its own port (Docker Compose, Kubernetes — the shape this image has
+        # always assumed, and what those defaults reproduce), and a platform where BACKEND is
+        # instead another service's public hostname, which speaks only HTTPS on 443 and rejects a
+        # forced custom port outright (Render, and similar). For that second shape, set
+        # API_SCHEME=https:// and API_PORT_SUFFIX="" on the web service.
+        set $api_upstream ${API_SCHEME}${BACKEND}${API_PORT_SUFFIX};
         proxy_pass $api_upstream;
+        # Only meaningful when $api_upstream is https:// — sends the right SNI/Host to a TLS-
+        # terminating edge that multiplexes many hostnames on one IP (again, Render's shape).
+        # Harmless no-op against a plain-HTTP sibling container, so this is safe to leave on
+        # unconditionally rather than templating a second on/off switch.
+        proxy_ssl_server_name on;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

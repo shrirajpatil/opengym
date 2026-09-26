@@ -189,6 +189,49 @@ function WeightInput({ value, setValue, unit }) {
   </>
 }
 
+/* ============================ body measurements ============================ */
+// Fixed set of optional metrics (issue: body measurements) — waist/chest/arms/thighs/hips/
+// shoulders, plain numbers with no unit conversion (the app has no length-unit setting the way
+// bodyweight has kg/lb, see lib/units.js). Every field is optional; only the day matters for
+// dedup, same convention as bodyweight's one-entry-per-day.
+const MEAS_FIELDS = [
+  ['waist', () => t('Waist')], ['chest', () => t('Chest')], ['arms', () => t('Arms')],
+  ['thighs', () => t('Thighs')], ['hips', () => t('Hips')], ['shoulders', () => t('Shoulders')],
+]
+function MeasurementsSection({ lenUnit }) {
+  const st = useStore(s => s.S)
+  const [open, setOpen] = useState(false)
+  const today = todayISO()
+  const existing = (st.measurements || []).find(m => m.date === today)
+  const [vals, setVals] = useState(() => Object.fromEntries(MEAS_FIELDS.map(([k]) => [k, existing ? existing[k] ?? null : null])))
+  const setField = (k, v) => setVals(x => ({ ...x, [k]: v }))
+  const save = () => {
+    const fields = Object.fromEntries(MEAS_FIELDS.map(([k]) => [k, vals[k]]).filter(([, v]) => v != null && v !== ''))
+    if (!Object.keys(fields).length) return
+    update(s => {
+      s.measurements = s.measurements || []
+      const ex = s.measurements.find(m => m.date === today)
+      if (ex) { Object.assign(ex, fields); ex.t = Date.now() } else s.measurements.push({ date: today, t: Date.now(), ...fields })
+      s.measurements.sort((a, b) => (a.date < b.date ? -1 : 1))
+    })
+    toast(t('Measurements saved'))
+  }
+  return <>
+    <button className="row between" style={{ width: '100%', background: 'none', border: 0, padding: '10px 2px', cursor: 'pointer', color: 'inherit' }}
+      onClick={() => setOpen(o => !o)} aria-expanded={open}>
+      <span className="ss">{t('Measurements')}</span>
+      <Icon name={open ? 'chevronUp' : 'chevronDown'} />
+    </button>
+    {open && <div className="meas-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
+      {MEAS_FIELDS.map(([k, label]) => <label key={k} className="small muted" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {label()}
+        <NumberField value={vals[k]} nullable onChange={v => setField(k, v)} placeholder={lenUnit} />
+      </label>)}
+      <div style={{ gridColumn: '1 / -1' }}><Button variant="secondary" onClick={save}>{t('Save measurements')}</Button></div>
+    </div>}
+  </>
+}
+
 /* ============================ body weight ============================ */
 function BwSheet({ required, onDone, close }) {
   const st = useStore(s => s.S)
@@ -229,6 +272,10 @@ function BwSheet({ required, onDone, close }) {
     {required && <>
       <div style={{ height: 8 }} /><Button variant="ghost" className="dim" onClick={() => { close(); onDone && onDone(null) }}>{t('Start without weighing in')}</Button>
       <div style={{ height: 2 }} /><Button variant="ghost" className="dim" icon="reset" onClick={() => { close(); nav('/workout') }}>{t('Choose a different workout')}</Button>
+    </>}
+    {!required && <>
+      <div style={{ height: 4 }} />
+      <MeasurementsSection lenUnit={unit === 'lb' ? 'in' : 'cm'} />
     </>}
     {!required && recent.length > 0 && <>
       <h4 className="sec">{t('Recent weigh-ins')}</h4>

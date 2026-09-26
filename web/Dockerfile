@@ -20,6 +20,16 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts
 COPY api/coach/core/ /app/api/coach/core/
 COPY frontend/ ./
+# Unset (the default) leaves exercises.js's own fallback (img/, gif/ — the media volume's
+# mount points) in the built bundle, unchanged from before these existed. Set both to point a
+# build at a CDN instead — e.g. jsDelivr's GitHub-backed mirror of the upstream exercise
+# dataset, the same one docs/SELF_HOSTING.md's demo-build recipe uses — on a target with no
+# media volume to mount (see NOTICE.md: this openGym never bundles or re-hosts that media
+# itself, only ever points at wherever the operator chooses to source it).
+ARG VITE_IMG_BASE=""
+ARG VITE_GIF_BASE=""
+ENV VITE_IMG_BASE=${VITE_IMG_BASE}
+ENV VITE_GIF_BASE=${VITE_GIF_BASE}
 RUN npm run build
 
 FROM nginx:alpine
@@ -51,8 +61,19 @@ ENV PORT=3000
 # The DNS nginx asks about BACKEND on every /api request. Docker's embedded resolver by
 # default, which is correct for compose. Nothing listens on it elsewhere, and an unreachable
 # resolver makes every /api request hang rather than fail, so any other runtime has to say
-# what its DNS is: on Kubernetes, the kube-dns/CoreDNS service address (commonly 10.96.0.10).
+# what its DNS is: on Kubernetes, the kube-dns/CoreDNS service address (commonly 10.96.0.10);
+# on a PaaS with no private networking (Render and similar), a public one (8.8.8.8, 1.1.1.1).
 ENV RESOLVER=127.0.0.11
+# Empty by default: nginx.conf.template's $api_upstream renders as http://${BACKEND}:${PORT},
+# exactly what it always has, for a sibling container reached by name on its own port (Compose,
+# Kubernetes). A platform where BACKEND is instead another service's public HTTPS-only hostname
+# (Render, and similar "one hostname, port 443 only" PaaS shapes) sets API_SCHEME=https:// and
+# API_PORT_SUFFIX="" (both on the *web* service, not api) to switch the same template to that
+# shape without forking it. API_PORT_SUFFIX is its own variable rather than being derived from
+# PORT so that overriding PORT alone at deploy time (which self-hosters already do) can never
+# silently change which upstream shape the proxy targets.
+ENV API_SCHEME=""
+ENV API_PORT_SUFFIX=":3000"
 # Empty = the CF-Connecting-IP header is dropped before it reaches the API, so it cannot be
 # forged by a direct client. Set to $http_cf_connecting_ip only when Cloudflare is really in
 # front. Defined here too, not just in compose, so the template always renders for anyone

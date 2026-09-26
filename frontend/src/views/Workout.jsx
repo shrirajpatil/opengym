@@ -77,6 +77,16 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onToggleSide, onFie
   const update = useStore(s => s.update)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
+  // Tracks the set count seen last render so a genuinely new row (Add set) can get a one-time
+  // .settle-in — never on every re-render, and never on a set that was already there (ticking a
+  // checkbox, editing a number). "Add set" always appends, so a length increase makes the last
+  // row the new one; "Add warm-up" inserts before the work rows instead (insertWarmupRow), so
+  // it's excluded here rather than mis-animating whichever row it pushed down.
+  const prevSetCount = useRef(entry.sets.length)
+  const grew = entry.sets.length > prevSetCount.current
+  const lastRow = entry.sets[entry.sets.length - 1]
+  const newRowIdx = grew && lastRow && !isWarmupRow(lastRow) ? entry.sets.length - 1 : -1
+  useEffect(() => { prevSetCount.current = entry.sets.length })
   // Drops/bursts mutate the row in place — same card, not a new set with its own long rest.
   // A planned exercise (see the exercise's "Intensifier" config) arrives with these already
   // filled in by applyIntensifierPlan; these only add/edit/remove entries live from here on.
@@ -422,7 +432,7 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onToggleSide, onFie
           {perSide && !warm && isSideSet(s) ? (
             // Unilateral work set: the number sits beside a two-row L/R stack, each side logged
             // and ticked on its own (issue #60).
-            <div ref={el => onSetRowRef?.(i, el)} className={'setrow-side' + (s.done ? ' done' : '')}>
+            <div ref={el => onSetRowRef?.(i, el)} className={'setrow-side' + (s.done ? ' done' : '') + (i === newRowIdx ? ' settle-in' : '')}>
               <button type="button" className="n" aria-label={t('Set {0}', phaseNum)} title={t('More')} onClick={() => openSetMenu(s, i)}>{phaseNum}</button>
               <div className="side-rows">
                 {sideRow(s, i, 'L', col1, col2, col3)}
@@ -432,7 +442,7 @@ function ExerciseBlock({ entryIdx, compact, dense, onToggle, onToggleSide, onFie
               </div>
             </div>
           ) : (
-          <div ref={el => onSetRowRef?.(i, el)} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
+          <div ref={el => onSetRowRef?.(i, el)} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '') + (i === newRowIdx ? ' settle-in' : '')}>
             <button type="button" className="n" aria-label={t('Set {0}', phaseNum)} title={t('More')} onClick={() => openSetMenu(s, i)}>{phaseNum}</button>
             {cell(s, i, col1, 'w')}
             {col2 && cell(s, i, col2, 'r')}
@@ -554,6 +564,21 @@ function ActiveWorkout() {
     }
   }
   const swipe = useRef(null)
+  // Tracks, per entry index, whether it belonged to a multi-exercise unit last render — so a
+  // freshly-paired member (onPairPrev/onPairNext, or "Make superset with…") gets a one-time
+  // .settle-in instead of just appearing, without touching the pairing logic itself. Compared
+  // before the ref is refreshed below; a member that was already in the superset (or is simply
+  // re-rendering for an unrelated reason, e.g. ticking a set) never re-triggers it.
+  const prevUnitMulti = useRef([])
+  const justPairedIdx = new Set()
+  units.forEach(u => {
+    if (u.length > 1) u.forEach(idx => { if (!prevUnitMulti.current[idx]) justPairedIdx.add(idx) })
+  })
+  useEffect(() => {
+    const next = []
+    units.forEach(u => { if (u.length > 1) u.forEach(idx => { next[idx] = true }) })
+    prevUnitMulti.current = next
+  })
   const progressHighWater = useRef(A.entries.map(e => e.sets.filter(s => s.done).length))
   // The marks are index-keyed, and removing an exercise shifts every index above it down
   // (removeActiveExercise splices). Re-baseline whenever the list length changes, otherwise a
@@ -965,7 +990,7 @@ function ActiveWorkout() {
                 </div>
                 {u.map((idx, k) => {
                   const entry = A.entries[idx]
-                  return <div key={idx} ref={el => bindExRef(entry, el)} className="ss-ex" data-exidx={idx}>
+                  return <div key={idx} ref={el => bindExRef(entry, el)} className={'ss-ex' + (justPairedIdx.has(idx) ? ' settle-in' : '')} data-exidx={idx}>
                     {k > 0 && <div className="ss-amp">+</div>}
                     <ExerciseBlock entryIdx={idx} compact dense={dense} onSetRowRef={(setIdx, el) => bindSetRef(entry, setIdx, el)}
                       {...blockProps(idx)} />
@@ -998,7 +1023,7 @@ function ActiveWorkout() {
           </div>
           {unit.map((idx, k) => {
             const entry = A.entries[idx]
-            return <div key={idx} ref={el => bindExRef(entry, el)} className="ss-ex" data-exidx={idx}>
+            return <div key={idx} ref={el => bindExRef(entry, el)} className={'ss-ex' + (justPairedIdx.has(idx) ? ' settle-in' : '')} data-exidx={idx}>
               {k > 0 && <div className="ss-amp">+</div>}
               <ExerciseBlock entryIdx={idx} compact onSetRowRef={(setIdx, el) => bindSetRef(entry, setIdx, el)}
                 {...blockProps(idx)} />

@@ -296,6 +296,19 @@ export default function Stats() {
     .map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
   const bw30 = S.bodyweight.filter(b => (b.t || new Date(b.d).getTime()) > now - 30 * 86400000)
   const bwDelta30 = bw30.length > 1 ? bw30[bw30.length - 1].w - bw30[0].w : null
+
+  // Body measurements — same shape as bodyweight above, but one line per metric rather than one
+  // fixed series, since a profile may only ever fill in a subset of the six fields.
+  const MEAS_METRICS = ['waist', 'chest', 'arms', 'thighs', 'hips', 'shoulders']
+  const measCounts = Object.fromEntries(MEAS_METRICS.map(k => [k, (S.measurements || []).filter(m => m[k] != null).length]))
+  const measAvailable = MEAS_METRICS.filter(k => measCounts[k] >= 2)
+  const [measMetric, setMeasMetric] = useState(null)
+  const curMeasMetric = measMetric && measAvailable.includes(measMetric) ? measMetric : measAvailable[0] || null
+  const measPts = curMeasMetric
+    ? (S.measurements || [])
+        .filter(m => m[curMeasMetric] != null && (range === 0 || (m.t || new Date(m.date).getTime()) > now - range * 86400000))
+        .map(m => ({ t: m.t || new Date(m.date).getTime(), y: m[curMeasMetric], d: m.date }))
+    : []
   const workouts = S.workouts
   const monthW = workouts.filter(w => String(w.d || '').slice(0, 7) === todayISO().slice(0, 7)).length
 
@@ -462,6 +475,18 @@ export default function Stats() {
         <div className="chart"><LineChart points={bwPts} h={160} unit={S.unit} goal={S.targetW} /></div>
       </div>
 
+      {measAvailable.length > 0 && <div className="card">
+        <h2 style={{ marginBottom: 8 }}>{t('Measurements')}</h2>
+        <div className="sect-b" style={{ marginBottom: 10 }}>
+          <SelectRow title={t('Metric')} sheetTitle={t('Measurements')} value={curMeasMetric} onChange={setMeasMetric}
+            options={measAvailable.map(k => ({
+              value: k,
+              label: { waist: t('Waist'), chest: t('Chest'), arms: t('Arms'), thighs: t('Thighs'), hips: t('Hips'), shoulders: t('Shoulders') }[k]
+            }))} />
+        </div>
+        <div className="chart"><LineChart points={measPts} h={140} unit={S.unit === 'lb' ? 'in' : 'cm'} /></div>
+      </div>}
+
       <div className="card">
         <h2>{t('Exercise progress')}</h2>
         {exHist.length ? <>
@@ -493,7 +518,10 @@ export default function Stats() {
           {!onEff && !onE1 && showEff && <div className="small dim" style={{ marginTop: 4 }}>
             {t('A fuller dot means less left in the tank — the same weight at a lower {0} is progress the line alone does not show.', hd)}
           </div>}
-        </> : <div className="muted small">{t('Finish your first workout to see progress curves here.')}</div>}
+        </> : <div className="stats-empty">
+          <div className="muted small">{t('Finish your first workout to see progress curves here.')}</div>
+          <Button size="sm" variant="primary" icon="dumbbell" onClick={() => nav('/')} style={{ marginTop: 10 }}>{t('Go to today')}</Button>
+        </div>}
       </div>
     </div>
 
@@ -502,7 +530,9 @@ export default function Stats() {
         <h4 className="sec" style={{ margin: 0 }}>{t('Recent workouts')}</h4>
         <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={() => nav('/history')}>{t('All')} {workouts.length}</Button>
       </div>
-      <div className="list">{[...workouts].reverse().slice(0, 6).map(w => <WorkoutRow key={w.id} w={w} onClick={() => workoutDetailSheet(w)} />)}</div>
+      <div className="list">{[...workouts].reverse().slice(0, 6).map((w, i) => (
+        <div key={w.id} className={i === 0 ? 'settle-in' : ''}><WorkoutRow w={w} onClick={() => workoutDetailSheet(w)} /></div>
+      ))}</div>
     </>}
   </>
 }

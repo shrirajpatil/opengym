@@ -136,9 +136,9 @@ describe('sign-in adoption helpers', () => {
   const server = { _ts: 100, unit: 'lb', restSec: 60, workouts: [{ id: 'w1', d: '2026-09-01' }], bodyweight: [{ d: '2026-09-01', w: 80, t: 1 }], routines: [{ id: 'r1', name: 'A' }], week: { 1: ['r1'] } }
   const local = { _ts: 900, unit: 'kg', restSec: 90, workouts: [{ id: 'w9', d: '2026-09-11' }], bodyweight: [{ d: '2026-09-11', w: 81, t: 2 }, { d: '2026-09-01', w: 79, t: 9 }], routines: [{ id: 'rg', name: 'Guest' }], customEx: [{ id: 'c1', name: 'x' }], week: { 2: ['rg'] } }
   it('localExtras counts what the device has that the server does not', () => {
-    expect(localExtras(local, server)).toEqual({ workouts: 1, bodyweight: 1, customEx: 1 })
-    expect(localExtras(server, server)).toEqual({ workouts: 0, bodyweight: 0, customEx: 0 })
-    expect(localExtras(null, server)).toEqual({ workouts: 0, bodyweight: 0, customEx: 0 })
+    expect(localExtras(local, server)).toEqual({ workouts: 1, bodyweight: 1, measurements: 0, customEx: 1 })
+    expect(localExtras(server, server)).toEqual({ workouts: 0, bodyweight: 0, measurements: 0, customEx: 0 })
+    expect(localExtras(null, server)).toEqual({ workouts: 0, bodyweight: 0, measurements: 0, customEx: 0 })
   })
   it('mergeStates with prefer keeps the preferred side\'s settings and plan although the other is newer', () => {
     const m = mergeStates(server, local, { prefer: 'a' })

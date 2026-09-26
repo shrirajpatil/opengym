@@ -426,7 +426,8 @@ export default function Settings() {
     <div className="dim small" style={{ textAlign: 'center', marginTop: 4, lineHeight: 1.6 }}>
       openGym v{__APP_VERSION__} · {t('free & open source (AGPL v3)')}<br />
       <a href="https://gitlab.com/DuarteSantos8/opengym" target="_blank" rel="noopener">source code</a> · exercise data: hasaneyldrm/exercises-dataset (MIT)<br />
-      exercise images and animations © <a href="https://gymvisual.com/" target="_blank" rel="noopener">Gym visual</a>
+      exercise images and animations © <a href="https://gymvisual.com/" target="_blank" rel="noopener">Gym visual</a><br />
+      {t('Personalized and self-hosted by Shriraj')}
     </div>
   </div>
 }

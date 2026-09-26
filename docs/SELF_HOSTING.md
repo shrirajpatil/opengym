@@ -190,6 +190,24 @@ Note the difference from `VITE_IMG_BASE` / `VITE_GIF_BASE` (see Troubleshooting)
 build-time values baked into the frontend bundle, and setting them next to `docker compose` does
 nothing to an image you pulled.
 
+### A PaaS with no private networking (Render, and similar)
+
+`BACKEND`/`PORT` above assume the ordinary case: a sibling container reachable by name on its
+own port. Some platforms give each service only one public hostname that speaks HTTPS on 443,
+with nothing else listening and no way to force a different port — Render is the example this
+was written against. Two more variables switch the same nginx template to that shape instead of
+forking it:
+
+```bash
+API_SCHEME=https://        # empty by default (plain http:// to a sibling container)
+API_PORT_SUFFIX=           # ":3000" by default; empty here since 443 is implied by https://
+RESOLVER=8.8.8.8           # such a platform has no equivalent of Docker's embedded resolver either
+BACKEND=your-api-services-public-hostname.example.com
+```
+
+Like `BACKEND`/`PORT`/`RESOLVER`, these render into the nginx config at container start, so they
+apply to a prebuilt image with no rebuild.
+
 ## 6. Backups
 
 Everything is in `./data`:
@@ -365,6 +383,28 @@ These two are read by Vite when the frontend is **compiled**, so their values ar
 the shipped JavaScript bundle. Setting them in the `.env` next to `docker compose` has no
 effect on an already-built image — the bundle has already made up its mind.
 
-They are only useful if you build the frontend yourself (`docker compose up -d --build`, or a
-`npm run build` with the variables exported). If you need to redirect media on a prebuilt
-image, do it in your reverse proxy instead.
+They are only useful if you build the frontend yourself. Two ways to do that:
+
+- **Docker Compose**: `docker compose up -d --build` reads them from `.env` the normal way (they
+  reach `web/Dockerfile`'s build stage as build args of the same name).
+- **A PaaS building from this repo's `web/Dockerfile` directly** (Render, and similar): set them
+  as that service's *build arguments*, not its runtime environment variables — the two are
+  different things on most such platforms, and only the former reaches an image build.
+
+If you have no `./media` volume to mount at all (again, the case on a PaaS with no persistent
+disk), point both at a CDN mirror of the upstream exercise dataset instead of self-hosting it —
+the same one this project's own demo build uses:
+
+```
+VITE_IMG_BASE=https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@<pinned-commit>/images/
+VITE_GIF_BASE=https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@<pinned-commit>/videos/
+```
+
+Pin `<pinned-commit>` to a specific commit SHA of that dataset (check `.gitlab-ci.yml`'s
+`DATASET` variable for the one this project's own demo currently uses) rather than a branch, so
+the media a build points at cannot change out from under you later. See `NOTICE.md`: this media
+is third-party and neither owned nor redistributed by openGym — pointing at the upstream source
+is fine, but do not copy the files themselves anywhere else.
+
+If you need to redirect media on an already-built prebuilt image without rebuilding, do it in
+your reverse proxy instead.

@@ -24,6 +24,12 @@ export const DEF = {
   unit: 'kg', restSec: 90, restPauseSec: 15, sound: true, soundOnSilent: false, timerFlash: false, keepAwake: true, lang: 'en',
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
+  // Body measurements (waist/chest/arms/thighs/hips/shoulders), one optional entry per day —
+  // same shape convention as bodyweight ({ date, t, ...fields }) but every measurement field is
+  // optional; only `date` is required, since a user may track just one or two of them. Values
+  // are plain numbers with no unit conversion (the app has no length-unit setting, unlike
+  // bodyweight's kg/lb `unit` — see lib/units.js).
+  measurements: [],
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // How the active workout is laid out — 'cards' (one exercise at a time with Prev/Next),
   // 'list' (every exercise stacked and scrollable) or 'compact' (that stack stripped to just
@@ -90,7 +96,7 @@ function loadState() {
   return clone(DEF)
 }
 
-const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
+const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length || (st.measurements || []).length)
 
 // Decide whether a pulled account state may replace the local saved state. A local active workout
 // is deliberately carried forward: the server stores completed/saved state, while the in-progress
@@ -465,7 +471,7 @@ export const useStore = create((set, get) => {
         return { adopted: false, added: false }
       }
       const extras = localExtras(S, state)
-      const keep = (extras.workouts || extras.bodyweight || extras.customEx) && typeof ask === 'function' ? await ask(extras) : false
+      const keep = (extras.workouts || extras.bodyweight || extras.measurements || extras.customEx) && typeof ask === 'function' ? await ask(extras) : false
       const serverCopy = Object.assign(clone(DEF), state, { active: S.active || null })
       if (keep) {
         const merged = Object.assign(clone(DEF), mergeStates(state, S, { prefer: 'a' }))

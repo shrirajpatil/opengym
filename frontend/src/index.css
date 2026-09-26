@@ -92,14 +92,19 @@
 :root[data-accent="red"]   { --acc:var(--red);    --acc-2:#d70015; --on-acc:#fff }
 :root[data-accent="teal"]  { --acc:var(--teal);   --acc-2:#0071a4; --on-acc:#000 }
 :root[data-accent="gold"]  { --acc:var(--yellow); --acc-2:#b25000; --on-acc:#000 }
+:root[data-accent="mint"]  { --acc:var(--mint);   --acc-2:#0a7d78; --on-acc:#000 }
+:root[data-accent="indigo"]{ --acc:var(--indigo); --acc-2:#3634a3; --on-acc:#fff }
 /* Label colour on a filled accent button is picked per accent by measured contrast,
    not by taste. Button text is 17px/600, so the AA bar is 3:1 (large text). White on
    the light-theme green is 2.22:1 and on teal 2.57:1 — both fail, and green is the
    DEFAULT accent, so every primary button in light mode was failing. Black scores
    9.46 / 8.16 there. Blue, purple, pink and red keep white (3.5–4.1:1), which both
-   passes and matches the platform convention. */
+   passes and matches the platform convention. Mint measures 2.12:1 with white (fails,
+   same shape as teal) and 9.91:1 with black; indigo measures 5.65:1 with white (passes
+   comfortably, same shape as sky/violet) so needs no override here. */
 :root[data-theme="light"][data-accent="lime"],
-:root[data-theme="light"][data-accent="teal"]  { --on-acc:#000 }
+:root[data-theme="light"][data-accent="teal"],
+:root[data-theme="light"][data-accent="mint"]  { --on-acc:#000 }
 :root[data-theme="light"][data-accent="sky"],
 :root[data-theme="light"][data-accent="violet"],
 :root[data-theme="light"][data-accent="pink"],
@@ -355,6 +360,15 @@ h4.sec{
 }
 @keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.45);opacity:0}}
 
+/* Two more of the same restrained kind as the five above — an acknowledgement, not a flourish.
+   Utility classes rather than being wired into one component, so any card/row/badge can opt in
+   with a single className. Both ride the same --ease/--fast/--med tokens as everything else and
+   are covered by the blanket prefers-reduced-motion rule above with no extra opt-out needed. */
+@keyframes pulse-once{0%{transform:scale(1)}30%{transform:scale(1.06)}100%{transform:scale(1)}}
+.pulse-once{animation:pulse-once var(--med) var(--ease)}
+@keyframes settle-in{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+.settle-in{animation:settle-in var(--med) var(--ease)}
+
 /* NOTE on every backdrop-filter pair in this file: the -webkit- line comes first and the
    standard property last, which is the order a prefixed/standard pair wants — whichever is
    written last wins in the cascade, and that should be the standard name.
@@ -566,7 +580,7 @@ body.chips-dragging *{cursor:inherit}
 
 /* native time input, restyled to sit in a row like a value label */
 .timef{
-  background:var(--surface-2);border:none;border-radius:8px;padding:6px 10px;
+  background:var(--surface-2);border:none;border-radius:var(--r-sm);padding:6px 10px;
   font-size:16px;color:var(--label);outline:none;font-variant-numeric:tabular-nums;
 }
 .timef::-webkit-calendar-picker-indicator{filter:invert(.5)}
@@ -676,6 +690,23 @@ body.chips-dragging *{cursor:inherit}
 .exmedia.compact .exmedia-x{height:120px}
 .exmedia.mini .exmedia-x{height:84px}
 
+/* --- media loading skeleton (wk-): a CDN-backed build (VITE_GIF_BASE/VITE_IMG_BASE off-origin)
+   can take a real moment, so the tile the animation/still will land in shows a quiet placeholder
+   instead of blank white — sized to the same box the image already reserves, so nothing shifts
+   when the real media arrives. A slow opacity breathe, not a sliding shimmer band, to match the
+   sheet's "acknowledge, don't animate" rule. */
+@keyframes wk-media-breathe{0%,100%{opacity:.5}50%{opacity:.85}}
+.wk-media-skel{
+  position:absolute;inset:0;background:var(--surface-2);
+  animation:wk-media-breathe 1.4s ease-in-out infinite;
+}
+.exmedia.wk-media-loading img{opacity:0}
+@media (prefers-reduced-motion:reduce){.wk-media-skel{animation:none;opacity:.65}}
+.wk-thumb-wrap{position:relative;display:block;width:50px;height:50px;flex:none;border-radius:9px;overflow:hidden}
+.wk-thumb-wrap .thumb{position:relative;width:100%;height:100%}
+.wk-thumb-skel{border-radius:9px}
+.wk-media-loading .thumb{opacity:0}
+
 .sethead{
   display:flex;align-items:center;gap:8px;padding:0 0 6px;
   font-size:11px;color:var(--label-3);font-weight:500;text-transform:uppercase;letter-spacing:.045em;
@@ -780,7 +811,7 @@ body.chips-dragging *{cursor:inherit}
 .setrow-side .setrow.side{padding:4px 0}
 .setrow-side .setrow.side+.setrow.side::before{display:none}
 .sidetag{
-  width:24px;height:24px;border-radius:8px;background:var(--surface-2);color:var(--label-3);
+  width:24px;height:24px;border-radius:var(--r-sm);background:var(--surface-2);color:var(--label-3);
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none;
 }
 .setrow.side.done .sidetag{background:var(--acc);color:var(--on-acc)}
@@ -834,27 +865,30 @@ body.chips-dragging *{cursor:inherit}
 .cfgrow .stp button{width:30px}
 .cfgrow .stp-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* --- rest timer --- */
+/* --- rest timer ---
+   The single most-looked-at surface during an actual workout (checked between every set), so
+   it gets the app's largest numeral (matching .t-large) rather than a mid-scale figure that
+   reads like any other stat, plus a touch more breathing room now that the digits are bigger. */
 #timer{
   position:fixed;left:12px;right:12px;bottom:calc(88px + var(--sab));z-index:60;
   /* nearly opaque: the set rows underneath were reading through the old 82% and made the
      clock hard to pick out mid-set. The blur stays, so it still sits above the page. */
   background:color-mix(in srgb,var(--surface) 97%,transparent);
   -webkit-backdrop-filter:saturate(180%) blur(10px);backdrop-filter:saturate(180%) blur(10px);
-  border-radius:var(--r-lg);padding:12px 14px;
-  display:flex;align-items:center;gap:12px;
+  border-radius:var(--r-lg);padding:14px 16px;
+  display:flex;align-items:center;gap:14px;
   box-shadow:0 12px 34px -8px rgba(0,0,0,.55);
   animation:slideup var(--med) var(--ease);
 }
 @keyframes slideup{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
-#timer .t{font-size:26px;font-weight:600;letter-spacing:-.026em;font-variant-numeric:tabular-nums;min-width:66px}
-#timer .bar{flex:1;height:4px;background:var(--surface-3);border-radius:99px;overflow:hidden}
+#timer .t{font-size:34px;line-height:1.06;font-weight:700;letter-spacing:-.028em;font-variant-numeric:tabular-nums;min-width:84px}
+#timer .bar{flex:1;height:5px;background:var(--surface-3);border-radius:99px;overflow:hidden}
 #timer .bar i{display:block;height:100%;background:var(--acc);transition:width 1s linear}
 /* rest variant: −15/+15/Skip and the clock won't share one line on a phone, so the clock and
    bar take the top row and the controls take their own. The work timer keeps a single row —
    it only ever has two buttons. */
-#timer.rest{flex-direction:column;align-items:stretch;gap:10px}
-#timer.rest .head{display:flex;align-items:center;gap:12px}
+#timer.rest{flex-direction:column;align-items:stretch;gap:12px}
+#timer.rest .head{display:flex;align-items:center;gap:14px}
 #timer.rest .acts{display:flex;align-items:center;gap:8px}
 #timer.rest .acts .btn{padding-top:11px;padding-bottom:11px}   /* sweaty hands, mid-set */
 #timer.rest .acts .skip{margin-left:auto;min-width:84px}
@@ -976,7 +1010,7 @@ body.chips-dragging *{cursor:inherit}
    pushed under the `.chart` clip at either edge — hence no offset here. */
 .ctip{
   position:absolute;left:0;top:0;background:var(--surface-2);
-  border-radius:8px;padding:4px 10px;font-size:12px;font-weight:500;white-space:nowrap;
+  border-radius:var(--r-sm);padding:4px 10px;font-size:12px;font-weight:500;white-space:nowrap;
   max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;
   pointer-events:none;box-shadow:0 6px 18px -4px rgba(0,0,0,.4);
 }
@@ -1176,6 +1210,20 @@ body.chips-dragging *{cursor:inherit}
   .today-row:hover{background:color-mix(in srgb,var(--surface-2),var(--surface-3) 60%)}
   :root[data-theme="light"] .today-row:hover{background:color-mix(in srgb,var(--surface-2),var(--surface-3) 85%)}
 }
+
+/* --- home: dashboard hierarchy ---
+   Today's plan is the reason someone opens the app, so it gets the largest surface and a
+   slightly bigger icon/title than the same row pattern used elsewhere. Everything else on
+   the dashboard (check-in, streak) is demoted into a compact two-up row below it. */
+.home-today-i{width:38px;height:38px;border-radius:9px;font-size:21px}
+.home-today-ttl{font-size:19px}
+.home-support{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.home-support-card{margin-bottom:0;padding:14px}
+@media (max-width:420px){
+  .home-support{grid-template-columns:1fr}
+}
+.home-pr-card{background:color-mix(in srgb,var(--yellow) 10%,var(--surface))}
+.home-empty,.stats-empty{text-align:center;padding:6px 4px}
 
 /* --------------------------------------------------- desktop (≥1000px) --- */
 .cols{display:block}

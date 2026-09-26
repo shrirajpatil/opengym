@@ -10,7 +10,7 @@
  *   - scalars and settings, `week`, `dayPlan`, `wc`, `reminder`, …: from the copy with the newer `_ts`
  *   - workouts, routines, customEx, equipProfiles, gymCards: union by id, the newer copy's version
  *     of an id that both have; workouts sorted by day and start like every other writer
- *   - bodyweight: union by day, the later-edited (`t`) entry of a day that both have
+ *   - bodyweight, measurements: union by day, the later-edited (`t`) entry of a day that both have
  *   - favEx: ordered set union, the newer copy first
  *   - exWeights: union by exercise, the larger `w` (the app itself only ever raises it — a PR
  *     logged on the other device must not be forgotten); exNotes, barWeights: key union
@@ -58,6 +58,18 @@ export function mergeBodyweight(a = [], b = []) {
   return [...byDay.values()].sort((x, y) => (x.d < y.d ? -1 : 1))
 }
 
+/** Same rule as mergeBodyweight, keyed the same way (one entry per day, later `t` wins) —
+ * measurements uses the identical { date/d, t, ...fields } shape, so it shares the merge. */
+export function mergeMeasurements(a = [], b = []) {
+  const byDay = new Map()
+  for (const e of [...list(a), ...list(b)]) {
+    if (!e || e.date == null) continue
+    const cur = byDay.get(e.date)
+    if (!cur || (e.t || 0) > (cur.t || 0)) byDay.set(e.date, e)
+  }
+  return [...byDay.values()].sort((x, y) => (x.date < y.date ? -1 : 1))
+}
+
 function mergeExWeights(n = {}, o = {}) {
   const out = { ...(o || {}), ...(n || {}) }
   for (const k of Object.keys(o || {})) {
@@ -80,6 +92,7 @@ export function mergeStates(a, b, { prefer } = {}) {
     if (list(n[f]).length || list(o[f]).length) out[f] = unionById(n[f], o[f]).map(clone)
   }
   out.bodyweight = mergeBodyweight(n.bodyweight, o.bodyweight).map(clone)
+  out.measurements = mergeMeasurements(n.measurements, o.measurements).map(clone)
   if (list(n.favEx).length || list(o.favEx).length) out.favEx = [...new Set([...list(n.favEx), ...list(o.favEx)])]
   out.exWeights = clone(mergeExWeights(n.exWeights, o.exWeights))
   for (const f of ['exNotes', 'barWeights']) {
@@ -96,10 +109,12 @@ export function mergeStates(a, b, { prefer } = {}) {
 export function localExtras(local, server) {
   const have = new Set(list(server?.workouts).map(workoutKey))
   const days = new Set(list(server?.bodyweight).map(e => e?.d))
+  const measDays = new Set(list(server?.measurements).map(e => e?.date))
   const ex = new Set(list(server?.customEx).map(e => e?.id))
   return {
     workouts: list(local?.workouts).filter(w => !have.has(workoutKey(w))).length,
     bodyweight: list(local?.bodyweight).filter(e => e && e.d != null && !days.has(e.d)).length,
+    measurements: list(local?.measurements).filter(e => e && e.date != null && !measDays.has(e.date)).length,
     customEx: list(local?.customEx).filter(e => e && !ex.has(e.id)).length
   }
 }
