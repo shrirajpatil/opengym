@@ -240,8 +240,20 @@ export const useStore = create((set, get) => {
         import('./useUI.js').then(({ useUI }) => useUI.getState().toast(t('Back online — synced with the server.'))).catch(() => {})
       }
     } catch (e) {
-      // A session that is gone is boot's business (/api/me); the copy stays owed to the server.
-      if (e.status === 401) { localStorage.setItem('gym_dirty', '1'); return }
+      // A session gone stale mid-open (not just at boot, which /api/me already covers) used to
+      // do nothing here at all: the copy stayed dirty, the banner stayed on "pending", and a tap
+      // to retry re-ran the same push against the same dead cookie forever — no visible change,
+      // because there wasn't one to show. Signing out here is what boot would have done anyway;
+      // doing it the moment a push actually discovers the session is gone, rather than waiting
+      // for the user to fully close and reopen the app, is the only difference.
+      if (e.status === 401) {
+        localStorage.setItem('gym_dirty', '1')
+        get().setUser(null)
+        import('./useUI.js')
+          .then(({ useUI }) => useUI.getState().toast(t('Signed out — please sign in again to keep syncing.')))
+          .catch(() => {})
+        return
+      }
       if (isNetworkError(e)) { localStorage.setItem('gym_dirty', '1'); offlineChanges = true; setSync({ offline: true, pending: true }); return }
       if (e.status === 409 && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
@@ -446,7 +458,18 @@ export const useStore = create((set, get) => {
           mergeInto(S, state, rev)
           pushPending = false
           await get().pushState()
-        } catch (e) { if (isNetworkError(e)) setSync({ offline: true }) /* keep local; the poll retries */ }
+        } catch (e) {
+          if (isNetworkError(e)) setSync({ offline: true }) /* keep local; the poll retries */
+          // Same reasoning as pushState's 401 branch: this can fire from the background poll or
+          // an app-resume pull, long after boot's own /api/me check ran — a session that dies
+          // mid-open is otherwise never caught until the app is fully closed and reopened.
+          else if (e.status === 401) {
+            get().setUser(null)
+            import('./useUI.js')
+              .then(({ useUI }) => useUI.getState().toast(t('Signed out — please sign in again to keep syncing.')))
+              .catch(() => {})
+          }
+        }
         finally { pulling = null }
       })()
       return pulling

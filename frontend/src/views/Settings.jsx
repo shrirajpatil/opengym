@@ -683,6 +683,11 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
   const [code, setCode] = useState('')
   const [inviteOnly, setInviteOnly] = useState(false)
   useEffect(() => { api('/api/config').then(c => setInviteOnly(!!c.invite_only)).catch(() => {}) }, [])
+  // Same fix as Login.jsx's RegisterSheet (this is the Settings-reached duplicate of that same
+  // form, and only that copy had it): a tap landing on the name field while the sheet is still
+  // mid-slide-up doesn't reliably raise the keyboard on WebKit, so it's focused once instead of
+  // left to whichever tap the user happens to land during the animation.
+  useEffect(() => { const t = window.setTimeout(() => nameRef.current?.focus(), 250); return () => window.clearTimeout(t) }, [])
   const go = async () => {
     const n = (nameRef.current.value || '').trim()
     if (!n) { toast(t('Enter a name')); return }

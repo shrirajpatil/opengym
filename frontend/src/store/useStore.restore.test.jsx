@@ -327,14 +327,23 @@ describe('signing in as a different profile', () => {
 })
 
 describe('push failures', () => {
-  it('says once that the server refused the upload as too large, and keeps the copy dirty', async () => {
+  it('signs out once on a 401, then still says once that a later 413 is too large', async () => {
     useStore.setState({ S: { ...clone(DEF), routines: [routine('local')] }, user: { id: 'user-1' }, ready: true })
 
     api.mockRejectedValueOnce(httpError(401))
     await useStore.getState().pushState()
     expect(localStorage.getItem('gym_dirty')).toBe('1')
-    expect(toast).not.toHaveBeenCalled()
+    // Signing out is itself worth a toast now (see useStore.js's pushState 401 branch) — it can
+    // only fire once per actual session death, since pushState's own first line short-circuits
+    // once get().user is gone, so there is no second push left to fire a second one.
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
+    expect(toast.mock.calls[0][0]).toMatch(/signed out/i)
+    expect(useStore.getState().user).toBeNull()
 
+    // A push after being signed out is a no-op (pushState's own guard), so sign back in to reach
+    // the 413 path this test is actually about.
+    useStore.setState({ user: { id: 'user-1' } })
+    toast.mockClear()
     api.mockRejectedValueOnce(httpError(413))
     await useStore.getState().pushState()
     await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
