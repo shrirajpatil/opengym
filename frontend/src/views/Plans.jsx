@@ -9,10 +9,21 @@ import { t, exerciseNameFor } from '../lib/i18n.js'
 import { DAYN } from '../lib/format.js'
 import { starterPlanOptions, starterPlanRows, starterPlanDays } from '../lib/starter.js'
 import { exOr } from '../lib/exercises.js'
-import { exerciseDetailSheet } from '../sheets.jsx'
+import { exerciseDetailSheet, chooseStarterPlan } from '../sheets.jsx'
+import { defaultConfig } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
 import Icon from '../components/Icon.jsx'
+import { Button } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
+
+// A starter plan's static [id, sets, reps] rows, converted into the shape the custom-plan
+// wizard's own local state uses ({ id, ...defaultConfig(id) }, with sets/reps overridden from
+// the template) — so "Edit as custom" forks by re-deriving the same exercise configs a user
+// would get picking them by hand, not by copying some other internal shape the wizard doesn't
+// already understand.
+function forkDaysFromRows(rows) {
+  return rows.map(({ list }) => list.map(([id, sets, reps]) => ({ id, ...defaultConfig(id), sets, reps })))
+}
 
 // A starter plan is "Active" when either every weekday it claims currently holds a routine
 // stamped with its id (weekday mode — checking BOTH the day and the stamp, since reassigning
@@ -29,7 +40,7 @@ function isPlanActive(S, planId) {
 // Same names as the starter-plan chooser (sheets.jsx's PLAN_COPY) — kept here too because
 // check-source-strings.mjs only finds t() calls written as string literals, not ones built
 // from a shared table across two files.
-const PLAN_NAME = {
+export const PLAN_NAME = {
   ppl: () => t('Push / Pull / Legs'),
   'upper-lower': () => t('Upper / Lower'),
   'full-body': () => t('Full Body'),
@@ -44,29 +55,38 @@ function Header({ back, title, sub }) {
   </div>
 }
 
-function PlanList() {
+// The plan-selection list itself — the main content of both the Plan screen (embedded, no
+// header of its own) and this file's own /plans route (with a Header, for anyone who lands on
+// the URL directly). One list, one place that knows what "Selected" means, so a rename or a new
+// starter plan added to lib/starter.js only has to be reflected here once.
+export function PlanSelectList() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
-  // Reached from a header icon on Plan (not its own tab, so the tab bar stays at five items) —
-  // needs its own way back there, the same shape every other pushed screen in the app already has.
+  return <div className="list">
+    {starterPlanOptions().map(({ id, days }) => {
+      const selected = isPlanActive(S, id)
+      return <div key={id} className="item" {...tappable(() => chooseStarterPlan(id, PLAN_NAME[id]()))}>
+        <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
+        <div className="grow"><div className="tt">{PLAN_NAME[id]()}</div><div className="ss">{selected ? t('Selected') : t('{0} days per week', days)}</div></div>
+        <button className="iconbtn sm" aria-label={t('View days')} onClick={e => { e.stopPropagation(); nav('/plans/' + id) }}><Icon name="info" /></button>
+      </div>
+    })}
+    <div className="item" {...tappable(() => nav('/plans/custom/new'))}>
+      <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="plus" /></span>
+      <div className="grow"><div className="tt">{t('Custom')}</div><div className="ss">{t('Build your own plan, weekday or rolling cycle')}</div></div>
+      <Icon name="chevronRight" className="chev" />
+    </div>
+  </div>
+}
+
+function PlanList() {
+  const nav = useNavigate()
+  // Reached directly at /plans (a bookmark, a deep link) — the Plan screen itself embeds
+  // PlanSelectList without this header, since it isn't a pushed screen there.
   return <>
     <Header back={() => nav('/plan')} title={t('Plans')} />
-    <div className="sub" style={{ marginBottom: 12 }}>{t('Browse a full training plan before you load it, or look one up mid-week.')}</div>
-    <div className="list">
-      {starterPlanOptions().map(({ id, days }) => (
-        <div key={id} className="item" {...tappable(() => nav('/plans/' + id))}>
-          <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
-          <div className="grow"><div className="tt">{PLAN_NAME[id]()}</div><div className="ss">{t('{0} days per week', days)}</div></div>
-          {isPlanActive(S, id) && <span className="tag acc">{t('Active')}</span>}
-          <Icon name="chevronRight" className="chev" />
-        </div>
-      ))}
-      <div className="item" {...tappable(() => nav('/plans/custom/new'))}>
-        <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="plus" /></span>
-        <div className="grow"><div className="tt">{t('Custom')}</div><div className="ss">{t('Build your own plan, weekday or rolling cycle')}</div></div>
-        <Icon name="chevronRight" className="chev" />
-      </div>
-    </div>
+    <div className="sub" style={{ marginBottom: 12 }}>{t('Tap a plan to apply it to your week — the info icon looks at its days first.')}</div>
+    <PlanSelectList />
   </>
 }
 
@@ -75,17 +95,25 @@ function PlanDays() {
   const nav = useNavigate()
   const rows = starterPlanRows(planId)
   if (!rows) return <PlanList />
+  const name = PLAN_NAME[planId]()
+  // Forking never touches the template itself — it only reads it once, here, to seed the
+  // wizard's own local state, exactly as if every exercise had been picked by hand. The template
+  // stays reloadable exactly as it was, and the fork becomes its own independent custom plan.
+  const editAsCustom = () => nav('/plans/custom/new', {
+    state: { fork: { name: t('{0} (edited)', name), mode: 'weekday', days: forkDaysFromRows(rows) } }
+  })
   return <>
-    <Header back={() => nav('/plans')} title={PLAN_NAME[planId]()} sub={t('{0} days per week', rows.length)} />
-    <div className="list">
-      {rows.map(({ day, name, emoji }) => (
+    <Header back={() => nav('/plans')} title={name} sub={t('{0} days per week', rows.length)} />
+    <div className="list" style={{ marginBottom: 12 }}>
+      {rows.map(({ day, name: routineName, emoji }) => (
         <div key={day} className="item" {...tappable(() => nav('/plans/' + planId + '/' + day))}>
           <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name={emoji} /></span>
-          <div className="grow"><div className="tt">{t(DAYN[day])}</div><div className="ss">{name}</div></div>
+          <div className="grow"><div className="tt">{t(DAYN[day])}</div><div className="ss">{routineName}</div></div>
           <Icon name="chevronRight" className="chev" />
         </div>
       ))}
     </div>
+    <Button icon="pencil" onClick={editAsCustom}>{t('Edit as custom')}</Button>
   </>
 }
 
