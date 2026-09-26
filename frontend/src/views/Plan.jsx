@@ -40,14 +40,19 @@ export default function Plan() {
   return <>
     <div className="hdr">
       <div><h1>{t('Plan')}</h1><div className="sub">{t('Your weekly routine')}</div></div>
-      <div className="row" style={{ gap: 4 }}>
-        {/* Browsing a plan's own structure (day by day, exercise by exercise, GIF included)
-            without loading it onto the week — folded in here rather than its own tab, so the
-            bottom bar stays at five items instead of six. */}
-        <button className="iconbtn" onClick={() => nav('/plans')} aria-label={t('Browse plans')} title={t('Browse plans')}><Icon name="clipboard" /></button>
-        <button className="iconbtn" onClick={planToolsSheet} aria-label={t('Share your plan')} title={t('Share your plan')}><Icon name="upload" /></button>
-      </div>
+      <button className="iconbtn" onClick={planToolsSheet} aria-label={t('Share your plan')} title={t('Share your plan')}><Icon name="upload" /></button>
     </div>
+    {/* Always visible, not just when Routines is empty — browsing a starter plan's own
+        structure (day by day, exercise by exercise, GIF included) without loading it onto the
+        week is something worth reaching even once you already have routines of your own. */}
+    <button className="coach-cta" onClick={() => nav('/plans')} style={{ marginBottom: 14 }}>
+      <span className="coach-cta-av"><Icon name="clipboard" /></span>
+      <span className="coach-cta-t">
+        <b>{t('Starter plans')}</b>
+        <span>{t('Browse a full training plan before you load it')}</span>
+      </span>
+      <Icon name="chevronRight" className="coach-cta-chev" />
+    </button>
     {showCoach && <button className="coach-cta" onClick={() => nav('/coach')}>
       <span className="coach-cta-av"><Icon name="sparkles" /></span>
       <span className="coach-cta-t">
