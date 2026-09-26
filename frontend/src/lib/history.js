@@ -304,6 +304,20 @@ export function bestWeightFor(S, exId) {
   return best
 }
 /**
+ * Which day (0-based) of a rolling cycle plan `iso` falls on, or null when the plan is off, has
+ * no days, or `iso` predates its start — a cycle that starts tomorrow has no day for yesterday,
+ * and falling back to the weekly plan for dates before the start is the more useful reading than
+ * treating them as rest (see effectiveRoutineIds).
+ */
+export function cycleDayIndex(cyclePlan, iso) {
+  if (!cyclePlan?.active || !cyclePlan.routineIds?.length) return null
+  const start = new Date(cyclePlan.startDate + 'T12:00:00')
+  const cur = new Date(iso + 'T12:00:00')
+  const days = Math.round((cur - start) / 86400000)
+  if (days < 0) return null
+  return days % cyclePlan.routineIds.length
+}
+/**
  * The routines planned for a date, in merge order. Plural is the primary form now that a
  * weekday can hold several routines (`S.week[wd]` is `string[]`); the singular helpers below
  * are thin wrappers. `[]` — a stray empty array, or a key that is absent — all mean rest, so
@@ -311,11 +325,22 @@ export function bestWeightFor(S, exId) {
  *
  * `S.dayPlan[iso]` stays scalar (a routine id, the `'rest'` sentinel, or undefined): the
  * per-date override and Start-time are single-pick. All array-tolerance is on `S.week`.
+ *
+ * A cycle plan's own day beats the weekday lookup below — the whole point of "day 1..N
+ * regardless of weekday" is that S.week's getDay() lookup never runs while one is active — but
+ * loses to a per-date override exactly like the weekly plan does: `S.dayPlan[iso]` does not know
+ * or care which mode produced the day it is overriding, so "swap today" and "make today rest"
+ * behave identically either way, with no extra code.
  */
 export function effectiveRoutineIds(S, iso) {
   const ov = S.dayPlan[iso]
   if (ov === 'rest') return []
   if (ov && S.routines.some(r => r.id === ov)) return [ov]
+  const idx = cycleDayIndex(S.cyclePlan, iso)
+  if (idx != null) {
+    const id = S.cyclePlan.routineIds[idx]
+    return id && S.routines.some(r => r.id === id) ? [id] : []
+  }
   const wd = new Date(iso + 'T12:00:00').getDay()
   return [].concat(S.week[wd] || []).filter(id => S.routines.some(r => r.id === id))
 }
@@ -338,7 +363,12 @@ export const effectiveRoutine = (S, iso) => effectiveRoutines(S, iso)[0] ?? null
  * "what's next" label.
  */
 export function nextTrainingDay(S, iso) {
-  for (let i = 1; i <= 7; i++) {
+  // 7 is enough for a weekly plan (the only case there used to be); a cycle plan can run longer
+  // than a week (the wizard caps it at 14), so the search window has to cover at least one full
+  // cycle or a plan that is, say, 10 days of training then 4 of rest could search past its own
+  // next training day and wrongly report the week as all rest.
+  const days = Math.max(7, S.cyclePlan?.active ? (S.cyclePlan.routineIds?.length || 0) : 0)
+  for (let i = 1; i <= days; i++) {
     const d = new Date(iso + 'T12:00:00')
     d.setDate(d.getDate() + i)
     const nextIso = isoOf(d)

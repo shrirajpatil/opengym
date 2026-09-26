@@ -98,7 +98,7 @@ export function buildReminderNotifications(S, now = new Date()) {
   if (!r?.on) return []
   const routines = Array.isArray(S.routines) ? S.routines : []
   const completed = new Set((S.workouts || []).map(w => w.d))
-  const state = { ...S, routines, week: S.week || {}, dayPlan: S.dayPlan || {} }
+  const state = { ...S, routines, week: S.week || {}, dayPlan: S.dayPlan || {}, cyclePlan: S.cyclePlan || null }
   const [hour, minute] = (r.time || '08:00').split(':').map(Number)
   if (!Number.isInteger(hour) || !Number.isInteger(minute)) return []
   const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)

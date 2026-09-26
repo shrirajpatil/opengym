@@ -30,6 +30,21 @@ export const DEF = {
   // are plain numbers with no unit conversion (the app has no length-unit setting, unlike
   // bodyweight's kg/lb `unit` — see lib/units.js).
   measurements: [],
+  // A rolling N-day cycle (Push/Pull/Legs run twice a week, repeating every 6 days regardless of
+  // which weekday it lands on, is the case this exists for) — day 1..N counted from `startDate`,
+  // instead of `week`'s fixed weekday grid. Mutually exclusive with the weekly plan BY
+  // CONVENTION, not by type: `week` is left completely untouched while a cycle plan is active, so
+  // switching `active` back off restores the old weekly plan with nothing to re-enter. `active`
+  // is its own flag rather than `cyclePlan: null` meaning "off" so a cycle plan's definition
+  // survives being toggled off (mirrors `reminder`'s `{ on: false, ... }` shape for the same
+  // reason). null — every profile before this field existed — means "use the weekly plan",
+  // which is exactly what effectiveRoutineIds already falls back to when this is null.
+  //   routineIds   — day 1..N in order, ids into `routines`
+  //   startDate    — the ISO date that counts as day 1; see history.js's cycleDayIndex
+  //   sourcePlanId — which starter/custom plan this came from, so the Plans list can show
+  //                  "Active" by checking this marker rather than by matching routine names
+  //                  (a renamed routine would otherwise silently break that check)
+  cyclePlan: null,
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // How the active workout is laid out — 'cards' (one exercise at a time with Prev/Next),
   // 'list' (every exercise stacked and scrollable) or 'compact' (that stack stripped to just

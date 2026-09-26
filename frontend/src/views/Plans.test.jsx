@@ -5,6 +5,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Plans from './Plans.jsx'
+import { useStore } from '../store/useStore.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -33,7 +34,7 @@ describe('Plans browser', () => {
   it('lists every starter plan with its day count', () => {
     const host = render()
     const names = [...host.querySelectorAll('.item .tt')].map(el => el.textContent)
-    expect(names).toEqual(['Push / Pull / Legs', 'Upper / Lower', 'Full Body', '5×5', 'Beginner PPL ×2'])
+    expect(names).toEqual(['Push / Pull / Legs', 'Upper / Lower', 'Full Body', '5×5', 'Beginner PPL ×2', 'Custom'])
     const beginnerRow = [...host.querySelectorAll('.item')].find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2')
     expect(beginnerRow.querySelector('.ss').textContent).toContain('6 days per week')
   })
@@ -61,6 +62,29 @@ describe('Plans browser', () => {
     act(() => { host.querySelector('.item').click() })
     expect(detailSheet).toHaveBeenCalledTimes(1)
     expect(detailSheet.mock.calls[0][0].id).toBe('0025')
+  })
+
+  it('shows Custom at the end of the list, and marks a loaded starter plan Active', () => {
+    let host = render()
+    const rows = [...host.querySelectorAll('.item')]
+    expect(rows.at(-1).querySelector('.tt').textContent).toBe('Custom')
+    expect(rows.find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2').querySelector('.tag')).toBeNull()
+
+    // Stamp routines the way loadStarterPlan actually does, then assign them onto the weekdays
+    // ppl2-beginner claims (Mon/Tue/Wed/Fri/Sat/Sun) — Active checks both the stamp and the day.
+    useStore.getState().update(s => {
+      const ids = ['push-a', 'pull-a', 'legs-a', 'push-b', 'pull-b', 'legs-b'].map(k => {
+        const id = k
+        s.routines.push({ id, name: k, emoji: 'star', ex: [], sourcePlanId: 'ppl2-beginner' })
+        return id
+      })
+      s.week = { 1: [ids[0]], 2: [ids[1]], 3: [ids[2]], 5: [ids[3]], 6: [ids[4]], 0: [ids[5]] }
+    })
+    act(() => { mounted.splice(0).forEach(root => root.unmount()) })
+    document.body.innerHTML = ''
+    host = render()
+    const active = [...host.querySelectorAll('.item')].find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2')
+    expect(active.querySelector('.tag').textContent).toBe('Active')
   })
 
   it('falls back to the plan list for an unknown plan id or day', () => {

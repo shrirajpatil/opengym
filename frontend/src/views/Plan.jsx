@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { DAYN, weekOrder, weekStartOf, uid, exCount } from '../lib/format.js'
+import { DAYN, weekOrder, weekStartOf, uid, exCount, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { dayAssignSheet, dayAddRoutineSheet, starterPlanSheet, planToolsSheet } from '../sheets.jsx'
+import { dayAssignSheet, dayAddRoutineSheet, starterPlanSheet, planToolsSheet, cycleResyncSheet } from '../sheets.jsx'
+import { cycleDayIndex } from '../lib/history.js'
 import Icon from '../components/Icon.jsx'
-import { Button } from '../components/ui.jsx'
+import { Button, Switch } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
 import { DEMO } from '../lib/demo.js'
@@ -62,8 +63,33 @@ export default function Plan() {
       <Icon name="chevronRight" className="coach-cta-chev" />
     </button>}
 
+    {/* Shown once a cycle plan exists at all, active or not — a stopped one still gets its own
+        row here, the same way S.reminder keeps showing in Settings once it exists but is off,
+        so turning it back on doesn't feel like reaching for a feature that vanished. */}
+    {S.cyclePlan && <div className="cols" style={{ marginBottom: 4 }}><div>
+      <div className="row between" style={{ marginBottom: 8 }}>
+        <h4 className="sec" style={{ margin: 0 }}>{t('Cycle plan')}</h4>
+        <Switch checked={!!S.cyclePlan.active} onChange={v => update(s => { s.cyclePlan.active = v })} />
+      </div>
+      <div className="list" style={{ display: 'flex', flexDirection: 'column', marginBottom: 8 }}>
+        {S.cyclePlan.routineIds.map((id, i) => {
+          const r = S.routines.find(x => x.id === id)
+          const isToday = S.cyclePlan.active && cycleDayIndex(S.cyclePlan, todayISO()) === i
+          return <div key={i} className="item" style={{ padding: '10px 14px' }}>
+            <span className="lrow-i" style={{ width: 26, height: 26, fontSize: 14 }}><Icon name={r ? glyphOf(r.emoji) : 'moon'} /></span>
+            <div className="grow"><div className="tt" style={{ fontSize: 14 }}>{t('Day {0}', i + 1)}</div><div className="ss">{r ? r.name : t('Rest')}</div></div>
+            {isToday && <span className="tag acc">{t('Today')}</span>}
+          </div>
+        })}
+      </div>
+      <Button size="sm" variant="secondary" icon="reset" onClick={cycleResyncSheet}>{t('Resync')}</Button>
+    </div></div>}
+
     <div className="cols"><div>
-      <h4 className="sec">{t('Week schedule')}</h4>
+      <div className="row between" style={{ marginBottom: 4 }}>
+        <h4 className="sec" style={{ margin: 0 }}>{t('Week schedule')}</h4>
+      </div>
+      {S.cyclePlan?.active && <div className="dim small" style={{ marginBottom: 8 }}>{t('Not used while your cycle plan is active.')}</div>}
       <div className="list" style={{ display: 'flex', flexDirection: 'column' }}>
         {weekOrder(weekStartOf(S)).map(d => {
           const dayRoutines = [].concat(S.week[d] || []).map(id => S.routines.find(x => x.id === id)).filter(Boolean)

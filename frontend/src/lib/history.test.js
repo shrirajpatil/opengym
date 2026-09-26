@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nextTrainingDay, modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, setsDone, setsDoneActive, setUnits, doneUnits, setUnitsTotal, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor, effectiveRoutineIds, effectiveRoutines, effectiveRoutineId, effectiveRoutine, lastEntryFor, entryExcluded } from './history.js'
+import { nextTrainingDay, modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, bestWeightFor, bestWeightForEntry, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, workSetsDone, setsDone, setsDoneActive, setUnits, doneUnits, setUnitsTotal, pairAdjacent, unpairSuperset, supersetUnits, applyIntensifierPlan, pinnedNoteFor, exNoteFor, effectiveRoutineIds, effectiveRoutines, effectiveRoutineId, effectiveRoutine, cycleDayIndex, lastEntryFor, entryExcluded } from './history.js'
 import { makeSideSet, setSideField, toggleSide } from './workout-model.js'
 import { EXDB } from './exercises.js'
 
@@ -1108,6 +1108,49 @@ describe('effectiveRoutineIds / effectiveRoutines', () => {
     expect(effectiveRoutine(S({ 3: ['r1', 'r2'] }), ISO).name).toBe('A')
     expect(effectiveRoutineId(S({}), ISO)).toBe(null)
     expect(effectiveRoutine(S({}), ISO)).toBe(null)
+  })
+})
+
+describe('cycleDayIndex', () => {
+  const cp = (over = {}) => ({ active: true, routineIds: ['a', 'b', 'c'], startDate: '2026-08-17', ...over })
+  it('day 1 of the cycle is the start date itself (index 0)', () => {
+    expect(cycleDayIndex(cp(), '2026-08-17')).toBe(0)
+  })
+  it('counts forward and wraps around the cycle length', () => {
+    expect(cycleDayIndex(cp(), '2026-08-18')).toBe(1)
+    expect(cycleDayIndex(cp(), '2026-08-19')).toBe(2)
+    expect(cycleDayIndex(cp(), '2026-08-20')).toBe(0)   // day 4 wraps back to index 0 of a 3-day cycle
+    expect(cycleDayIndex(cp(), '2026-08-23')).toBe(0)   // a full cycle later, same index again
+  })
+  it('a date before the start has no cycle day', () => {
+    expect(cycleDayIndex(cp(), '2026-08-16')).toBe(null)
+  })
+  it('null, inactive or empty are all "no cycle day"', () => {
+    expect(cycleDayIndex(null, '2026-08-17')).toBe(null)
+    expect(cycleDayIndex(cp({ active: false }), '2026-08-17')).toBe(null)
+    expect(cycleDayIndex(cp({ routineIds: [] }), '2026-08-17')).toBe(null)
+  })
+})
+
+describe('effectiveRoutineIds with a cycle plan active', () => {
+  const routines = [{ id: 'r1', name: 'A', ex: [{ id: '1' }] }, { id: 'r2', name: 'B', ex: [{ id: '2' }] }]
+  const cyclePlan = { active: true, routineIds: ['r1', 'r2'], startDate: '2026-08-17' }
+  const S = (dayPlan = {}, cp = cyclePlan) => ({ routines, week: { 3: ['r2'] }, dayPlan, cyclePlan: cp })
+
+  it('the cycle plan\'s own day wins over the weekly plan — the weekday lookup never runs', () => {
+    // 2026-08-19 is a Wednesday (week[3] = r2) and cycle day index 2 % 2 = 0 -> r1.
+    expect(effectiveRoutineIds(S(), '2026-08-19')).toEqual(['r1'])
+  })
+  it('a per-date override still wins over the cycle plan, same as it does over the weekly plan', () => {
+    expect(effectiveRoutineIds(S({ '2026-08-19': 'r2' }), '2026-08-19')).toEqual(['r2'])
+    expect(effectiveRoutineIds(S({ '2026-08-19': 'rest' }), '2026-08-19')).toEqual([])
+  })
+  it('a date before the cycle started falls back to the weekly plan, not to rest', () => {
+    expect(effectiveRoutineIds(S({}, cyclePlan), '2026-08-16')).toEqual([])   // Sunday, week[3] only
+    expect(effectiveRoutineIds(S({}, cyclePlan), '2026-08-19')).not.toEqual([])
+  })
+  it('an inactive cycle plan is ignored — the weekly plan runs exactly as it did before this existed', () => {
+    expect(effectiveRoutineIds(S({}, { ...cyclePlan, active: false }), '2026-08-19')).toEqual(['r2'])
   })
 })
 

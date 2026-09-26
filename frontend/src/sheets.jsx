@@ -4,7 +4,7 @@ import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, smOf, matchExercise, exOr } from './lib/exercises.js'
 import { activeProfile, exAvailable, ALL_EQUIPMENT, newProfile } from './lib/equipment.js'
 import { fmtDate, fmtNum, capWords, fmtVol, fmtDur, durPart, todayISO, isoOf, uid, exCount, DAYN, DAYS, weekOrder, weekStartOf, weekDayOffset, MONTHS_LONG, ACCENTS } from './lib/format.js'
-import { lastEntryFor, bestWeightFor, bestWeightForEntry, buildSets, effectiveRoutineIds, workoutVolume, setsDone, setsDoneActive, setUnitsTotal, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, EFFORT, capEffort, stepEffort, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
+import { lastEntryFor, bestWeightFor, bestWeightForEntry, buildSets, effectiveRoutineIds, cycleDayIndex, workoutVolume, setsDone, setsDoneActive, setUnitsTotal, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, EFFORT, capEffort, stepEffort, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
 import { usesBar, barWeightFor, defaultBarWeight, hasBarOverride } from './lib/bar.js'
 import { toScale, rirOf, EFFORT_PRESETS, effortColor } from './lib/effort.js'
 import { beep, vibrate } from './lib/sound.js'
@@ -115,7 +115,10 @@ export function loadStarterPlan(planId) {
   const plan = buildStarterPlan(planId)
   if (!plan) return false
   update(st => {
-    st.routines.push(...plan.routines)
+    // Stamped here, not inside starter.js's build() (which stays plan-id-agnostic) — this is
+    // what the Plans list's "Active" badge checks for (views/Plans.jsx's isPlanActive), rather
+    // than matching by routine name, which a rename would silently break.
+    st.routines.push(...plan.routines.map(r => ({ ...r, sourcePlanId: planId })))
     plan.schedule.forEach(({ day, routineId }) => { st.week[day] = [routineId] })
   })
   toast(t('{0} loaded', PLAN_COPY[planId]().name))
@@ -1671,6 +1674,41 @@ function DayAssign({ day, close }) {
   </>
 }
 export const dayAssignSheet = day => ui().openSheet(close => <DayAssign day={day} close={close} />)
+
+/* ============================ cycle plan resync ============================ */
+// "I meant to start on day 1 but it's actually day 2" and "I skipped days, make today day 1
+// again" are the same rewrite: pick which day of the cycle today IS, then solve backwards for
+// the startDate that makes that true. Never touches routineIds or their order — a resync only
+// ever moves where the cycle counts from.
+function CycleResync({ close }) {
+  const st = useStore(s => s.S)
+  const cp = st.cyclePlan
+  const todayIdx = cycleDayIndex(cp, todayISO()) ?? 0
+  const setToday = i => {
+    close()
+    update(s => {
+      const d = new Date(todayISO() + 'T12:00:00')
+      d.setDate(d.getDate() - i)
+      s.cyclePlan.startDate = isoOf(d)
+    })
+    toast(t('Today set to day {0} of your cycle', i + 1))
+  }
+  return <>
+    <h3>{t('What day of your cycle is today?')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('This only moves where the cycle counts from — your routines and their order stay the same.')}</div>
+    <div className="list">
+      {(cp?.routineIds || []).map((id, i) => {
+        const r = st.routines.find(x => x.id === id)
+        return <div key={i} className="item" {...tappable(() => setToday(i))}>
+          <span className="lrow-i">{r ? <Icon name={glyphOf(r.emoji)} /> : <Icon name="moon" />}</span>
+          <div className="grow"><div className="tt">{t('Day {0}', i + 1)}</div><div className="ss">{r ? r.name : t('Rest')}</div></div>
+          {i === todayIdx && <Icon name="check" className="accent" />}
+        </div>
+      })}
+    </div>
+  </>
+}
+export const cycleResyncSheet = () => ui().openSheet(close => <CycleResync close={close} />)
 
 // ＋ Add routine on a populated weekday: single-pick, appends to the day's list. A routine
 // already on that day is disabled; picking one closes the sheet.

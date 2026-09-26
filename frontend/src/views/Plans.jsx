@@ -4,14 +4,27 @@
 // (sheets.jsx's starterPlanSheet); this only lets you look at what a plan actually contains
 // before you commit to it, or reference it once you're mid-week.
 import { useParams, useNavigate } from 'react-router-dom'
+import { useStore } from '../store/useStore.js'
 import { t, exerciseNameFor } from '../lib/i18n.js'
 import { DAYN } from '../lib/format.js'
-import { starterPlanOptions, starterPlanRows } from '../lib/starter.js'
+import { starterPlanOptions, starterPlanRows, starterPlanDays } from '../lib/starter.js'
 import { exOr } from '../lib/exercises.js'
 import { exerciseDetailSheet } from '../sheets.jsx'
 import { Thumb } from '../components/Media.jsx'
 import Icon from '../components/Icon.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
+
+// A starter plan is "Active" when either every weekday it claims currently holds a routine
+// stamped with its id (weekday mode — checking BOTH the day and the stamp, since reassigning
+// that weekday away from the plan should clear the badge even though the old routine object
+// still carries the marker), or the cycle plan's own source matches (cycle mode). Name matching
+// was deliberately not used — renaming "Push A" to "Chest Day" must not silently break this.
+function isPlanActive(S, planId) {
+  if (S.cyclePlan?.active && S.cyclePlan.sourcePlanId === planId) return true
+  const days = starterPlanDays(planId)
+  if (!days) return false
+  return days.every(d => [].concat(S.week[d] || []).some(id => S.routines.find(r => r.id === id)?.sourcePlanId === planId))
+}
 
 // Same names as the starter-plan chooser (sheets.jsx's PLAN_COPY) — kept here too because
 // check-source-strings.mjs only finds t() calls written as string literals, not ones built
@@ -33,6 +46,7 @@ function Header({ back, title, sub }) {
 
 function PlanList() {
   const nav = useNavigate()
+  const S = useStore(s => s.S)
   // Reached from a header icon on Plan (not its own tab, so the tab bar stays at five items) —
   // needs its own way back there, the same shape every other pushed screen in the app already has.
   return <>
@@ -43,9 +57,15 @@ function PlanList() {
         <div key={id} className="item" {...tappable(() => nav('/plans/' + id))}>
           <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
           <div className="grow"><div className="tt">{PLAN_NAME[id]()}</div><div className="ss">{t('{0} days per week', days)}</div></div>
+          {isPlanActive(S, id) && <span className="tag acc">{t('Active')}</span>}
           <Icon name="chevronRight" className="chev" />
         </div>
       ))}
+      <div className="item" {...tappable(() => nav('/plans/custom/new'))}>
+        <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="plus" /></span>
+        <div className="grow"><div className="tt">{t('Custom')}</div><div className="ss">{t('Build your own plan, weekday or rolling cycle')}</div></div>
+        <Icon name="chevronRight" className="chev" />
+      </div>
     </div>
   </>
 }
