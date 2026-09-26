@@ -58,7 +58,12 @@ export async function getDb() {
   ]);
   return {
     users: users.rows.map(u => ({ ...u, created: u.created?.toISOString?.() ?? u.created })),
-    creds: creds.rows,
+    // Same bigint-comes-back-as-a-string issue as audit_log's seq/ts (see readAuditRows) —
+    // counter is WebAuthn's signature counter, compared numerically against what the
+    // authenticator itself reports on every sign-in to catch a cloned credential. Left as a
+    // string, that comparison is against the wrong type the moment @simplewebauthn/server does
+    // anything numeric with it rather than a loose equality check.
+    creds: creds.rows.map(c => ({ ...c, counter: Number(c.counter) })),
     subs: subs.rows.map(s => ({ ...s, deviceId: s.deviceId || undefined })),
     invites: invites.rows.map(i => ({ ...i, usedAt: i.usedAt?.toISOString?.() ?? i.usedAt }))
   };
@@ -185,7 +190,13 @@ export async function writeAuditRows() {
 }
 export async function readAuditRows() {
   const r = await pool.query('select seq as id, ts, ev, ok, uid, name, tgt, tname, msg, ip from audit_log order by seq');
-  return r.rows;
+  // bigint/bigserial columns come back from `pg` as strings, not numbers — precision safety for
+  // values that could exceed 2^53, which neither of these realistically ever will (ts is a plain
+  // Date.now() epoch-ms, seq an appended-once-per-event counter). Left as strings, `id` breaks the
+  // admin audit page's pagination cursor semantics the moment two sequences are compared as text
+  // rather than magnitude, and `ts` breaks outright: `new Date("1758...")` — a numeric STRING, not
+  // a number — is `Invalid Date`, because Date's string constructor only parses ISO-8601 text.
+  return r.rows.map(row => ({ ...row, id: Number(row.id), ts: Number(row.ts) }));
 }
 export async function deleteAuditFile() {
   await pool.query('delete from audit_log');
