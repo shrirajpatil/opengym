@@ -389,11 +389,19 @@ They are only useful if you build the frontend yourself. Two ways to do that:
   reach `web/Dockerfile`'s build stage as build args of the same name).
 - **A PaaS building from this repo's `web/Dockerfile` directly** (Render, and similar): set them
   as that service's *build arguments*, not its runtime environment variables — the two are
-  different things on most such platforms, and only the former reaches an image build.
+  different things on most such platforms, and only the former reaches an image build. **Not
+  every platform's UI exposes build arguments as a separate field** (Render's plain Web Service
+  did not, as of writing) — if yours doesn't either, the only way to change these is to edit
+  `web/Dockerfile`'s two `ARG` defaults directly and push that change, same as any other build
+  setting a UI doesn't expose.
 
 If you have no `./media` volume to mount at all (again, the case on a PaaS with no persistent
 disk), point both at a CDN mirror of the upstream exercise dataset instead of self-hosting it —
-the same one this project's own demo build uses:
+the same one this project's own demo build uses. **This fork's `web/Dockerfile` already defaults
+to that CDN** (Render has no persistent disk, so the upstream project's own empty/local-path
+default would just leave every exercise picture broken here) — the values below are what's
+baked in unless overridden with `--build-arg VITE_IMG_BASE= --build-arg VITE_GIF_BASE=` back to
+empty, which is what you'd want if you DO have a `./media` volume:
 
 ```
 VITE_IMG_BASE=https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@<pinned-commit>/images/

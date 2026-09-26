@@ -20,14 +20,15 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts
 COPY api/coach/core/ /app/api/coach/core/
 COPY frontend/ ./
-# Unset (the default) leaves exercises.js's own fallback (img/, gif/ — the media volume's
-# mount points) in the built bundle, unchanged from before these existed. Set both to point a
-# build at a CDN instead — e.g. jsDelivr's GitHub-backed mirror of the upstream exercise
-# dataset, the same one docs/SELF_HOSTING.md's demo-build recipe uses — on a target with no
-# media volume to mount (see NOTICE.md: this openGym never bundles or re-hosts that media
-# itself, only ever points at wherever the operator chooses to source it).
-ARG VITE_IMG_BASE=""
-ARG VITE_GIF_BASE=""
+# This fork's default target is Render, which has no persistent disk and so no ./media volume
+# to mount — the upstream project's own default (empty, falling back to exercises.js's img/,
+# gif/ mount-point paths) would just leave every exercise picture broken here. Defaulted instead
+# to jsDelivr's GitHub-backed mirror of the upstream exercise dataset, the same one
+# docs/SELF_HOSTING.md's demo-build recipe already points at (see NOTICE.md: this only ever
+# points at wherever the operator chooses to source that media, never bundles or re-hosts it).
+# A self-hoster who DOES have a media volume overrides these back to "" with --build-arg.
+ARG VITE_IMG_BASE="https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@7455efae41b330c265e7cd4b78dfa848e7ce5ebd/images/"
+ARG VITE_GIF_BASE="https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@7455efae41b330c265e7cd4b78dfa848e7ce5ebd/videos/"
 ENV VITE_IMG_BASE=${VITE_IMG_BASE}
 ENV VITE_GIF_BASE=${VITE_GIF_BASE}
 RUN npm run build
