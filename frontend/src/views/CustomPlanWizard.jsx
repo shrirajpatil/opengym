@@ -3,7 +3,7 @@
 // a schedule written — so the result is an ordinary plan a user can edit afterwards exactly like
 // any other, not a special "custom plan" type that needs its own maintenance surface forever.
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { t, exerciseNameFor } from '../lib/i18n.js'
 import { uid, DAYN, todayISO } from '../lib/format.js'
@@ -25,11 +25,16 @@ export default function CustomPlanWizard() {
   const nav = useNavigate()
   const update = useStore(s => s.update)
   const S = useStore(s => s.S)
-  const [step, setStep] = useState(0) // 0 name+mode, 1 per-day exercises
-  const [name, setName] = useState('')
-  const [mode, setMode] = useState('weekday') // 'weekday' | 'cycle'
-  const [n, setN] = useState(6)
-  const [days, setDays] = useState(() => WEEKDAY_LABELS.map(() => []))
+  // Forking an existing plan (Plans.jsx's "Edit as custom") hands its exercises in via router
+  // state rather than a URL param — this is working data for one navigation, not a bookmarkable
+  // page. The fork itself never touches the source plan: it is read once here, at mount, to seed
+  // the wizard's own local state, exactly as if a user had picked every exercise by hand.
+  const fork = useLocation().state?.fork ?? null
+  const [step, setStep] = useState(fork ? 1 : 0) // 0 name+mode, 1 per-day exercises
+  const [name, setName] = useState(fork?.name || '')
+  const [mode, setMode] = useState(fork?.mode || 'weekday') // 'weekday' | 'cycle'
+  const [n, setN] = useState(fork?.mode === 'cycle' ? fork.days.length : 6)
+  const [days, setDays] = useState(() => fork ? fork.days : WEEKDAY_LABELS.map(() => []))
 
   const dayCount = mode === 'weekday' ? 7 : n
   const dayLabel = i => mode === 'weekday' ? t(DAYN[i]) : t('Day {0}', i + 1)

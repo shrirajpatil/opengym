@@ -128,29 +128,31 @@ export function loadStarterPlan(planId) {
 // Intl joins the days the way each language does it — "and" vs "und", "、" in Chinese.
 const dayList = days => new Intl.ListFormat(dateLocale()).format(days.map(d => t(DAYN[d])))
 
+// Loads a starter plan, confirming first only when doing so would actually change something —
+// a day already occupied by a routine that still exists. A stale id the Plan screen already
+// shows as "Rest" doesn't count, so picking a plan onto an otherwise-empty week never nags.
+// Exported so both the sheet below and the Plan screen's own plan list (views/Plan.jsx) can
+// select a plan the same way, with the same confirmation behaviour.
+export function chooseStarterPlan(id, name) {
+  const { week, routines } = S()
+  const days = starterPlanDays(id)
+  const taken = day => [].concat(week[day] || []).some(rid => routines.some(r => r.id === rid))
+  if (!days.some(taken)) { loadStarterPlan(id); return }
+  confirmSheet({
+    title: t('Load {0}?', name),
+    message: t('The new plan will be scheduled on {0}. Existing routines are kept — only those days of the weekly plan change.', dayList(days)),
+    confirmText: t('Load plan'),
+    onConfirm: () => loadStarterPlan(id)
+  })
+}
+
 function StarterPlanChooser({ close }) {
-  const week = useStore(s => s.S.week)
-  const routines = useStore(s => s.S.routines)
-  const choose = (id, name) => {
-    const days = starterPlanDays(id)
-    close()
-    // A confirmation is only worth showing when one of those days is actually occupied — by a
-    // routine that still exists, not by a stale id the Plan already shows as "Rest".
-    const taken = day => [].concat(week[day] || []).some(id => routines.some(r => r.id === id))
-    if (!days.some(taken)) { loadStarterPlan(id); return }
-    confirmSheet({
-      title: t('Load {0}?', name),
-      message: t('The new plan will be scheduled on {0}. Existing routines are kept — only those days of the weekly plan change.', dayList(days)),
-      confirmText: t('Load plan'),
-      onConfirm: () => loadStarterPlan(id)
-    })
-  }
   return <>
     <h3>{t('Choose starter plan')}</h3>
     <div className="list">
       {starterPlanOptions().map(({ id, days }) => {
         const { name, about } = PLAN_COPY[id]()
-        return <div key={id} className="item" {...tappable(() => choose(id, name))}>
+        return <div key={id} className="item" {...tappable(() => { close(); chooseStarterPlan(id, name) })}>
           <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="sparkles" /></span>
           <div className="grow"><div className="tt">{name}</div><div className="ss">{t('{0} days per week', days)} · {about}</div></div>
           <Icon name="chevronRight" className="chev" />

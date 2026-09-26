@@ -64,27 +64,29 @@ describe('Plans browser', () => {
     expect(detailSheet.mock.calls[0][0].id).toBe('0025')
   })
 
-  it('shows Custom at the end of the list, and marks a loaded starter plan Active', () => {
+  it('shows Custom at the end of the list, and marks a loaded starter plan Selected', () => {
     let host = render()
     const rows = [...host.querySelectorAll('.item')]
     expect(rows.at(-1).querySelector('.tt').textContent).toBe('Custom')
-    expect(rows.find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2').querySelector('.tag')).toBeNull()
+    expect(rows.find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2').querySelector('.ss').textContent).not.toBe('Selected')
 
     // Stamp routines the way loadStarterPlan actually does, then assign them onto the weekdays
-    // ppl2-beginner claims (Mon/Tue/Wed/Fri/Sat/Sun) — Active checks both the stamp and the day.
-    useStore.getState().update(s => {
-      const ids = ['push-a', 'pull-a', 'legs-a', 'push-b', 'pull-b', 'legs-b'].map(k => {
-        const id = k
-        s.routines.push({ id, name: k, emoji: 'star', ex: [], sourcePlanId: 'ppl2-beginner' })
-        return id
+    // ppl2-beginner claims (Mon/Tue/Wed/Fri/Sat/Sun) — Selected checks both the stamp and the day.
+    act(() => {
+      useStore.getState().update(s => {
+        const ids = ['push-a', 'pull-a', 'legs-a', 'push-b', 'pull-b', 'legs-b'].map(k => {
+          const id = k
+          s.routines.push({ id, name: k, emoji: 'star', ex: [], sourcePlanId: 'ppl2-beginner' })
+          return id
+        })
+        s.week = { 1: [ids[0]], 2: [ids[1]], 3: [ids[2]], 5: [ids[3]], 6: [ids[4]], 0: [ids[5]] }
       })
-      s.week = { 1: [ids[0]], 2: [ids[1]], 3: [ids[2]], 5: [ids[3]], 6: [ids[4]], 0: [ids[5]] }
     })
     act(() => { mounted.splice(0).forEach(root => root.unmount()) })
     document.body.innerHTML = ''
     host = render()
-    const active = [...host.querySelectorAll('.item')].find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2')
-    expect(active.querySelector('.tag').textContent).toBe('Active')
+    const selected = [...host.querySelectorAll('.item')].find(el => el.querySelector('.tt').textContent === 'Beginner PPL ×2')
+    expect(selected.querySelector('.ss').textContent).toBe('Selected')
   })
 
   it('falls back to the plan list for an unknown plan id or day', () => {
