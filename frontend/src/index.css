@@ -345,8 +345,8 @@ h4.sec{
   transition:transform var(--fast) var(--ease);
 }
 #tabbar button.start:active .cir{transform:scale(.93)}
-/* Six tabs either side of the start button (was five) — on a narrow phone the labels are the
-   first thing to get tight, so they shrink slightly rather than wrap or overflow their button. */
+/* On a narrow phone the tab labels are the first thing to get tight, so they shrink slightly
+   rather than wrap or overflow their button. */
 @media (max-width:360px){
   #tabbar button{font-size:9px;letter-spacing:0}
   #tabbar button .icn{font-size:22px}

@@ -33,8 +33,10 @@ function Header({ back, title, sub }) {
 
 function PlanList() {
   const nav = useNavigate()
+  // Reached from a header icon on Plan (not its own tab, so the tab bar stays at five items) —
+  // needs its own way back there, the same shape every other pushed screen in the app already has.
   return <>
-    <div className="hdr"><h1>{t('Plans')}</h1></div>
+    <Header back={() => nav('/plan')} title={t('Plans')} />
     <div className="sub" style={{ marginBottom: 12 }}>{t('Browse a full training plan before you load it, or look one up mid-week.')}</div>
     <div className="list">
       {starterPlanOptions().map(({ id, days }) => (

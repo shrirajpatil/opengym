@@ -40,7 +40,13 @@ export default function Plan() {
   return <>
     <div className="hdr">
       <div><h1>{t('Plan')}</h1><div className="sub">{t('Your weekly routine')}</div></div>
-      <button className="iconbtn" onClick={planToolsSheet} aria-label={t('Share your plan')} title={t('Share your plan')}><Icon name="upload" /></button>
+      <div className="row" style={{ gap: 4 }}>
+        {/* Browsing a plan's own structure (day by day, exercise by exercise, GIF included)
+            without loading it onto the week — folded in here rather than its own tab, so the
+            bottom bar stays at five items instead of six. */}
+        <button className="iconbtn" onClick={() => nav('/plans')} aria-label={t('Browse plans')} title={t('Browse plans')}><Icon name="clipboard" /></button>
+        <button className="iconbtn" onClick={planToolsSheet} aria-label={t('Share your plan')} title={t('Share your plan')}><Icon name="upload" /></button>
+      </div>
     </div>
     {showCoach && <button className="coach-cta" onClick={() => nav('/coach')}>
       <span className="coach-cta-av"><Icon name="sparkles" /></span>

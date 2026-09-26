@@ -13,9 +13,10 @@ export default function TabBar({ onStart }) {
   const isGuest = useStore(s => s.isGuest())
   if (!user && !isGuest) return null
   const cur = loc.pathname.split('/')[1] || 'home'
-  const on = k => cur === k || (cur === 'history' && k === 'stats') || (cur === 'settings' && k === 'home') || (cur === 'muscles' && k === 'library')
-  // The plan browser is its own tab, distinct from "Plan" (which edits your own weekly
-  // schedule) — this one is read-only: browse a plan's structure, or look one up mid-week.
+  // "plans" (the read-only browser) counts as being on the "plan" tab — it's reached from
+  // there (an icon in Plan's header) rather than its own bottom-bar slot, keeping the bar at
+  // five items instead of six.
+  const on = k => cur === k || (cur === 'history' && k === 'stats') || (cur === 'settings' && k === 'home') || (cur === 'muscles' && k === 'library') || (cur === 'plans' && k === 'plan')
 
   const startWorkout = () => {
     if (!S.active) {
@@ -35,7 +36,6 @@ export default function TabBar({ onStart }) {
     <nav id="tabbar">
       <Tab k="home" icon="house" to="/home" label={t('Home')} />
       <Tab k="plan" icon="calendar" to="/plan" label={t('Plan')} />
-      <Tab k="plans" icon="clipboard" to="/plans" label={t('Plans')} />
       {/* On the workout screen itself there is nothing to resume, so the button reads as the
           tab it is and stays lit (#29); anywhere else it brings you back to the exercise you
           were on — the marker is kept in S.active.cur and never moves on its own (#21). */}
