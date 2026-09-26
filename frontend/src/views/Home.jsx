@@ -69,9 +69,9 @@ export default function Home() {
   return <div className="narrow">
     <div className="hdr">
       <div>
-        <h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1>
+        <h1>{user ? t('Hi {0}', user.name) : 'GRND'}</h1>
         <div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-        <div className="dim" style={{ fontSize: 11, marginTop: 2 }}>{t('openGym — designed by Shriraj Patil')}</div>
+        <div className="dim" style={{ fontSize: 11, marginTop: 2 }}>{t('GRND — designed by Shriraj Patil')}</div>
       </div>
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
     </div>
