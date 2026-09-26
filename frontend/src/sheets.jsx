@@ -1592,6 +1592,22 @@ function PlanImport({ bundle, close }) {
 }
 
 /* ============================ day override / assign ============================ */
+// A bare "I trained, didn't log it" marker for a past or today's date — just enough of a
+// workout shape (a date, zero duration, no entries) to light up the heatmap and count toward
+// the streak (both read only S.workouts.map(w => w.d), see lib/history.js's streakWeeks and
+// components/Heatmap.jsx), and deliberately nothing more: no entries means no sets for the
+// progression engine or PR detection to read, so this can never be mistaken for real training
+// data the way a logged session is. Idempotent per date — tapping it twice does not double up.
+function markDayDone(iso) {
+  update(s => {
+    if (s.workouts.some(w => w.d === iso && w.quickDone)) return
+    s.workouts.push({ id: uid(), d: iso, start: 0, end: 0, vol: 0, prs: [], entries: [], quickDone: true })
+    s.workouts.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : (a.start || 0) - (b.start || 0)))
+  })
+}
+function unmarkDayDone(iso) {
+  update(s => { s.workouts = s.workouts.filter(w => !(w.d === iso && w.quickDone)) })
+}
 function DayOverride({ iso, close }) {
   const st = useStore(s => s.S)
   const wd = new Date(iso + 'T12:00:00').getDay()
@@ -1606,9 +1622,24 @@ function DayOverride({ iso, close }) {
     close()
     toast(v === '' ? t('Back to weekly plan') : v === 'rest' ? t('{0} set to rest', fmtDate(iso)) : t('{0} planned for {1}', (st.routines.find(r => r.id === v) || {}).name, fmtDate(iso)))
   }
+  // Only a past or today's date can be "done" — a future one is still just planned.
+  const canMarkDone = iso <= todayISO()
+  const quickDone = st.workouts.some(w => w.d === iso && w.quickDone)
+  const toggleDone = () => {
+    if (quickDone) unmarkDayDone(iso); else markDayDone(iso)
+    close()
+    toast(quickDone ? t('Unmarked {0}', fmtDate(iso)) : t('{0} marked done', fmtDate(iso)))
+  }
   return <>
     <h3>{fmtDate(iso, true)}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Weekly plan:')} {weeklyNames.length ? deriveSessionName(weeklyNames) : t('Rest')}{hasOvr && <span style={{ color: 'var(--orange)' }}> · {t('changed for this day')}</span>}<br />{t('Sick, missed a day or want a different session? Pick what to train instead.')}</div>
+    {canMarkDone && <div className="list" style={{ marginBottom: 10 }}>
+      <div className="item" {...tappable(toggleDone)}>
+        <span className="lrow-i" style={{ background: quickDone ? 'var(--green)' : 'var(--surface-3)' }}><Icon name="checkCircle" /></span>
+        <div className="grow"><div className="tt">{t('Mark as done')}</div><div className="ss">{t('No details, just marks the day trained')}</div></div>
+        {quickDone && <Icon name="check" className="accent" />}
+      </div>
+    </div>}
     <div className="list">
       {st.routines.map(r => <div key={r.id} className="item" {...tappable(() => set(r.id))}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -1716,6 +1747,15 @@ function WorkoutDetail({ w, close }) {
     g.items.push([e, i])
   })
   const grouped = groups.length > 1 || (groups[0] && groups[0].rid && (w.routineIds || []).length > 1)
+  // A quick "mark as done" (sheets.jsx's markDayDone) has no name, no duration and no entries —
+  // it exists only to light up the heatmap/streak (see its own comment), so its detail view says
+  // exactly that rather than rendering a workout-shaped view around fields that were never filled.
+  if (w.quickDone) return <>
+    <h3>{t('Marked done')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{fmtDate(w.d, true)}</div>
+    <div className="dim small" style={{ marginBottom: 14 }}>{t('No workout details were logged for this day — just a note that you trained.')}</div>
+    <Button variant="danger" onClick={() => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Unmarked')) }}>{t('Unmark this day')}</Button>
+  </>
   return <>
     <h3>{w.name}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(w.vol, st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
@@ -1790,6 +1830,12 @@ export const calendarSheet = start => ui().openSheet(close => <Calendar start={s
 /* shared small workout row (used in lists) */
 export function WorkoutRow({ w, onClick }) {
   const st = useStore(s => s.S)
+  if (w.quickDone) return <div className="item" {...tappable(onClick)}>
+    <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19, background: 'var(--green)' }}><Icon name="checkCircle" /></span>
+    <div className="grow"><div className="tt">{t('Marked done')}</div>
+      <div className="ss">{fmtDate(w.d, true)}</div></div>
+    <Icon name="chevronRight" className="chev" />
+  </div>
   const glyph = glyphOf((st.routines.find(r => r.id === w.routineId) || {}).emoji)
   return <div className="item" {...tappable(onClick)}>
     <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19 }}><Icon name={glyph} /></span>
