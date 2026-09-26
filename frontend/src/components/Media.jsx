@@ -11,7 +11,10 @@ import Icon from './Icon.jsx'
 // future workouts (issue #12). Settings can also turn workout media off entirely
 // (gifSize 'off') — then nothing renders here and the exercise card closes up, exactly like
 // a custom exercise without media. Any other/legacy value behaves as 'full'.
-export default function Media({ ex, id, compact, minimizable }) {
+// `showStill` renders the exercise's own static frame underneath the animation, always visible
+// rather than tap-to-toggle — the Plans tab's exercise view wants both at once (the animation to
+// see the movement, a still to actually study the end position), not a switch between them.
+export default function Media({ ex, id, compact, minimizable, showStill }) {
   const [playing, setPlaying] = useState(true)
   // 'gif' → the animation failed, the still is showing; 'all' → the still failed too. Media is
   // fetched from wherever the build points (a mount, a CDN): a dropped connection, an expired
@@ -40,6 +43,7 @@ export default function Media({ ex, id, compact, minimizable }) {
     setPlaying(p => !p)
   }
   return (
+    <>
     <div className={'exmedia' + (compact ? ' compact' : '') + (mini ? ' mini' : '') + (failed === 'all' ? ' broken' : '') + (loading ? ' wk-media-loading' : '')} id={id} onClick={onTap}>
       {failed === 'all'
         ? <div className="exmedia-x"><Icon name="dumbbell" /></div>
@@ -56,6 +60,13 @@ export default function Media({ ex, id, compact, minimizable }) {
         </span>
       )}
     </div>
+    {showStill && ex.img && failed !== 'all' && (
+      <div className="exmedia-still">
+        <img decoding="async" draggable={false} loading="lazy" src={imgSrc(ex)} alt={exerciseNameFor(ex)} />
+        <span className="exmedia-still-label">{t('End position')}</span>
+      </div>
+    )}
+    </>
   )
 }
 

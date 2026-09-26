@@ -88,3 +88,13 @@ export const buildStarterPlan = id => {
   const byKey = Object.fromEntries(plan.routines.map(([key], i) => [key, routines[i].id]))
   return { routines, schedule: plan.schedule.map(([day, key]) => ({ day, routineId: byKey[key] })) }
 }
+
+// Read-only view of a plan's own [weekday, name, emoji, exercises] rows, for the Plans tab
+// (browse only — never mints routine ids, never touches S.routines/S.week). null for an
+// unknown id, same "changes/reads nothing" contract as the functions above.
+export const starterPlanRows = id => {
+  const plan = PLANS[id]
+  if (!plan) return null
+  const byKey = Object.fromEntries(plan.routines.map(([key, name, emoji, list]) => [key, { name, emoji, list }]))
+  return plan.schedule.map(([day, key]) => ({ day, ...byKey[key] }))
+}

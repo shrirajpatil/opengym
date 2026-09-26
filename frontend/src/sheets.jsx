@@ -699,7 +699,7 @@ function ExerciseDetail({ ex, close }) {
         <Icon name={fav ? 'starFill' : 'star'} />
       </button>
     </div>
-    <Media ex={ex} />
+    <Media ex={ex} showStill />
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '10px 0' }}>
       <span className="tag acc">{t(ex.bp)}</span>
       {ex.bp === 'cardio' ? <span className="tag"><Icon name="target" />{t(MUSCLE_NAME['cardiovascular system'])}</span> : (ex.primaries?.length ? ex.primaries : (ex.tg ? [ex.tg] : [])).map((s, i) => <span key={i} className="tag"><Icon name="target" />{t(MUSCLE_NAME[s]  || s)}</span>)}
