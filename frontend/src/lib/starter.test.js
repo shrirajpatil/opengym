@@ -26,15 +26,24 @@ const APPROVED = {
     [3, '5×5 B', [['0085', 5, 5], ['0426', 5, 5], ['2330', 5, 5]]],
     [5, '5×5 C', [['0739', 5, 5], ['0047', 5, 5], ['1323', 5, 5]]],
   ],
+  'ppl2-beginner': [
+    [1, 'Push A', [['0025', 3, 8], ['0314', 2, 10], ['0227', 2, 12], ['0178', 3, 16], ['0200', 2, 12], ['0194', 2, 12]]],
+    [2, 'Pull A', [['2330', 3, 10], ['0180', 3, 10], ['0027', 2, 10], ['0383', 2, 16], ['0031', 2, 10], ['0313', 2, 12]]],
+    [3, 'Legs A', [['0046', 3, 8], ['2287', 2, 10], ['0586', 3, 12], ['0605', 3, 12], ['0472', 2, 11]]],
+    [5, 'Push B', [['0314', 3, 10], ['0576', 2, 10], ['0227', 2, 12], ['0405', 2, 10], ['0178', 3, 16], ['0060', 2, 12], ['0200', 2, 12]]],
+    [6, 'Pull B', [['2330', 3, 10], ['0606', 3, 10], ['0184', 2, 12], ['0383', 2, 16], ['0372', 2, 10], ['0313', 2, 12]]],
+    [0, 'Legs B', [['0043', 3, 8], ['0085', 2, 10], ['0585', 2, 12], ['0599', 2, 12], ['0605', 3, 12], ['0212', 2, 12]]],
+  ],
 }
 
 const shape = r => r.ex.map(e => [e.id, e.sets, e.reps])
 
 describe('starter plan catalog', () => {
-  it('offers exactly the four plans, with the day count read off the schedule', () => {
+  it('offers exactly the five plans, with the day count read off the schedule', () => {
     expect(starterPlanOptions()).toEqual([
       { id: 'ppl', days: 3 }, { id: 'upper-lower', days: 4 },
       { id: 'full-body', days: 3 }, { id: '5x5', days: 3 },
+      { id: 'ppl2-beginner', days: 6 },
     ])
     for (const { id, days } of starterPlanOptions()) expect(starterPlanDays(id)).toHaveLength(days)
   })

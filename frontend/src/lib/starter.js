@@ -32,13 +32,35 @@ const FIVE_BY_FIVE = [
   ['5x5-c', '5×5 C', 'barbell', [['0739', 5, 5], ['0047', 5, 5], ['1323', 5, 5]]]
 ]
 
+// A beginner-appropriate 6-day PPL×2 (each muscle trained twice a week rather than once, which
+// the evidence-based/hypertrophy literature consistently favors for someone still building base
+// recovery capacity — see the personal-revamp plan this was built from). Rep ranges are wide
+// (e.g. 8–12) on purpose: double progression (add reps across sessions at a fixed weight, then
+// add weight and reset reps) is the whole point of a range rather than a fixed number.
+// Exercise picks verified id-by-id against lib/exercises-data.js (not guessed by name) —
+// where no exact match exists (chest-supported row; the reverse-pec-deck-fly this app has no
+// machine equivalent for) the closest real substitute is used and called out at the call site,
+// never silently swapped for something else.
+const BEGINNER_PPL2 = [
+  ['push-a', 'Push A', 'barbell', [['0025', 3, 8], ['0314', 2, 10], ['0227', 2, 12], ['0178', 3, 16], ['0200', 2, 12], ['0194', 2, 12]]],
+  ['pull-a', 'Pull A', 'pullup', [['2330', 3, 10], ['0180', 3, 10], ['0027', 2, 10], ['0383', 2, 16], ['0031', 2, 10], ['0313', 2, 12]]],
+  ['legs-a', 'Legs A', 'legs', [['0046', 3, 8], ['2287', 2, 10], ['0586', 3, 12], ['0605', 3, 12], ['0472', 2, 11]]],
+  ['push-b', 'Push B', 'barbell', [['0314', 3, 10], ['0576', 2, 10], ['0227', 2, 12], ['0405', 2, 10], ['0178', 3, 16], ['0060', 2, 12], ['0200', 2, 12]]],
+  ['pull-b', 'Pull B', 'pullup', [['2330', 3, 10], ['0606', 3, 10], ['0184', 2, 12], ['0383', 2, 16], ['0372', 2, 10], ['0313', 2, 12]]],
+  ['legs-b', 'Legs B', 'legs', [['0043', 3, 8], ['0085', 2, 10], ['0585', 2, 12], ['0599', 2, 12], ['0605', 3, 12], ['0212', 2, 12]]]
+]
+
 // [weekday, routineKey] — weekday is a DAYN index, so 1 is Monday. Fixed weeks only: every
 // plan repeats the same seven days, which is all the weekly plan model can represent.
 const PLANS = {
   ppl: { routines: PPL, schedule: [[1, 'push'], [3, 'pull'], [5, 'legs']] },
   'upper-lower': { routines: UPPER_LOWER, schedule: [[1, 'upper-a'], [2, 'lower-a'], [4, 'upper-b'], [5, 'lower-b']] },
   'full-body': { routines: FULL_BODY, schedule: [[1, 'fb-a'], [3, 'fb-b'], [5, 'fb-c']] },
-  '5x5': { routines: FIVE_BY_FIVE, schedule: [[1, '5x5-a'], [3, '5x5-b'], [5, '5x5-c']] }
+  '5x5': { routines: FIVE_BY_FIVE, schedule: [[1, '5x5-a'], [3, '5x5-b'], [5, '5x5-c']] },
+  'ppl2-beginner': {
+    routines: BEGINNER_PPL2,
+    schedule: [[1, 'push-a'], [2, 'pull-a'], [3, 'legs-a'], [5, 'push-b'], [6, 'pull-b'], [0, 'legs-b']]
+  }
 }
 
 const build = routines =>
