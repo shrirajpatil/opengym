@@ -52,7 +52,14 @@ server {
         # unconditionally rather than templating a second on/off switch.
         proxy_ssl_server_name on;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        # $host (the ORIGINAL request's Host — this web service's own hostname) is right for a
+        # sibling container, which doesn't route on it at all. It is wrong for a platform whose
+        # edge multiplexes many services behind shared IPs by Host header (Render, and similar):
+        # forwarding this service's own hostname there sends the request straight back to this
+        # same service, an infinite loop that surfaces as a 508. $proxy_host — nginx's own name
+        # for whatever $api_upstream resolved to — is the backend's real hostname either way, so
+        # it is correct for both shapes and there is no second variable to template here.
+        proxy_set_header Host $proxy_host;
         proxy_set_header X-Real-IP $remote_addr;
         # $remote_addr, NOT $proxy_add_x_forwarded_for: the latter APPENDS to whatever the client
         # sent, and the API reads the first entry — so a client could put any address it liked in
