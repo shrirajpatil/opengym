@@ -1,6 +1,6 @@
 # Roadmap
 
-Where openGym is going, in the order it is likely to land. Each block is a GitHub milestone; the
+Where GRND (built on openGym) is going, in the order it is likely to land. Each block is a GitHub milestone; the
 issues and pull requests attached to it are the plan, this file is the readable summary.
 
 **A release every two weeks, on a Sunday.** Each one is small on purpose: a handful of issues, one

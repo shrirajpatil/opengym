@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="openGym" width="720">
+<img src="assets/banner.png" alt="GRND" width="720">
 
 <br>
 
@@ -57,9 +57,13 @@ demo</a> is the real app with example data — no account, nothing to install.</
 ## Why
 
 Most workout apps lock your data behind a login on their servers, nag you to upgrade, or
-disappear when the startup does. openGym is the opposite: **it runs on your box, your data
+disappear when the startup does. GRND is the opposite: **it runs on your box, your data
 stays in a folder you control, and it's yours to fork.** It still feels modern — installable
 as a home-screen app, passkey sign-in, offline support, sync across your phone and laptop.
+
+GRND is a personal, self-hosted fork of [openGym](https://github.com/DuarteSantos8/openGym),
+an open-source gym & body-weight tracker by Duarte Santos. It's the same AGPL-3.0 codebase
+under its own name and presentation — see [License](#license) below for the full legal detail.
 
 ## Features
 
@@ -122,12 +126,12 @@ docker compose up -d
 Open **http://localhost:8080**, tap **Create profile**, and you're in. First launch downloads
 the exercise media (~140 MB) once.
 
-> **About that media:** it reaches openGym through
+> **About that media:** it reaches GRND (via the openGym codebase it's built on) through
 > [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset), which
 > redistributes [ExerciseDB v1](https://exercisedb.dev/) — its metadata and instruction text are
 > MIT, but the images and animations are third-party content under *neither* that MIT license nor
-> openGym's AGPL, and their ownership is currently disputed between Gym visual and ExerciseDB.
-> openGym ships none of it: your instance downloads it from upstream. Reusing it yourself,
+> this project's AGPL, and their ownership is currently disputed between Gym visual and ExerciseDB.
+> GRND ships none of it: your instance downloads it from upstream. Reusing it yourself,
 > commercially or not, means clearing it with the rights holder — see [NOTICE.md](NOTICE.md).
 The prebuilt images are published twice, from the same tag: `registry.gitlab.com/duartesantos8/opengym/{api,web}`
 (what `docker-compose.yml` pulls) and `ghcr.io/duartesantos8/opengym-{api,web}` on GitHub — swap the
@@ -148,7 +152,7 @@ mobile app is the install-and-done flavor.
 - **Android:** [**download the APK**](https://opengym.duarte-santos.ch) — or straight from
   [GitLab's package registry](https://gitlab.com/DuarteSantos8/opengym/-/packages) or the
   [GitHub release](https://github.com/DuarteSantos8/openGym/releases/latest), where every
-  build sits next to its `.sha256` — and sideload it; openGym is deliberately not on the Play
+  build sits next to its `.sha256` — and sideload it; GRND is deliberately not on the Play
   Store. Or build it yourself: **[docs/MOBILE.md](docs/MOBILE.md)**.
 - **iPhone:** Apple doesn't allow installing apps outside the App Store, so there is no iOS
   download. Self-host and add it to your home screen from Safari (it's a full PWA), or build
@@ -274,7 +278,7 @@ in the Docker build.
 Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues: more starter
 plans, exercise-data languages, import from other trackers. **A ⭐ helps more people find it.**
 
-openGym is free and stays free: AGPL, no subscription, no paid tier, nothing held back for
+GRND is free and stays free: AGPL, no subscription, no paid tier, nothing held back for
 sponsors. If it replaced a paid tracker for you and you want to chip in, there's a coffee button
 below (and a badge at the top) — a star, a bug report or a merge request is worth just as much.
 
@@ -286,20 +290,23 @@ below (and a badge at the top) — a star, a bug report or a merge request is wo
 
 ## License
 
-**openGym's own code** is [GNU AGPL v3.0](LICENSE) — free and open source. You can self-host,
-use, modify and share it; if you run a modified version as a network service, you must offer that
-version's source under the same license. Nobody can turn openGym into a closed, proprietary
+GRND is a personal fork of [openGym](https://github.com/DuarteSantos8/openGym) by Duarte Santos,
+and **stays under the same license as the project it's built on.**
+
+**This code** is [GNU AGPL v3.0](LICENSE) — free and open source. You can self-host, use,
+modify and share it; if you run a modified version as a network service, you must offer that
+version's source under the same license. Nobody can turn this project into a closed, proprietary
 product.
 
-**Third-party content is not, and openGym cannot sublicense it.** The exercise metadata and
-instruction text originate from [ExerciseDB v1](https://exercisedb.dev/) and reach openGym through
-[hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) under the
+**Third-party content is not, and this project cannot sublicense it.** The exercise metadata and
+instruction text originate from [ExerciseDB v1](https://exercisedb.dev/) and reach this codebase
+through [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) under the
 **MIT** license. The exercise images and animations are third-party content covered by neither
 that license nor the AGPL, and their ownership is **currently unresolved** — the upstream dataset
 attributes them to [Gym visual](https://gymvisual.com/) under a non-transferable permission, while
 [ExerciseDB/AscendAPI](https://exercisedb.io/faq) claims to be their creator and owner. A
-clarification has been requested. openGym does not redistribute them (your instance fetches them
-at first run) and does not relicense them. To reuse that media yourself, clear it with the rights
-holder first.
+clarification has been requested. This project does not redistribute them (your instance fetches
+them at first run) and does not relicense them. To reuse that media yourself, clear it with the
+rights holder first.
 
 Full third-party notices, including the body-diagram geometry: **[NOTICE.md](NOTICE.md)**.
