@@ -404,19 +404,14 @@ export default function Settings() {
 
     {/* ---------- updates: the last thing on the page, so keeping openGym current is one tap ----------
         On Android the row is always there — it checks on demand and installs when a release is
-        newer (checksum verified, see onUpdateRowClick). On the web the app updates with its
-        server, so the row points at the APK for the phone instead. iOS has no APK: nothing. */}
+        newer (checksum verified, see onUpdateRowClick). iOS has no APK: nothing. */}
     {(!MOBILE || android) && <Section title={t('Updates')}
-      footer={MOBILE ? t('Releases are checked on gitlab.com. The download is verified against its checksum before the installer opens.') : t('The web app updates together with your server. The Android app installs its own updates from here.')}>
-      {MOBILE
-        ? <Row icon="download" iconTint="var(--acc)"
-            title={updateInfo?.hasUpdate ? t('Update to openGym v{0}', updateInfo.latestVersion) : t('Check for updates')}
-            subtitle={checking ? t('Checking…') : t('You have v{0}', __APP_VERSION__)}
-            accessory="chevron"
-            onClick={() => (updateInfo?.hasUpdate ? onUpdateRowClick() : checkNow())} />
-        : <Row icon="download" iconTint="var(--acc)" title={t('Get the Android app')}
-            subtitle={t('Download the APK from opengym.duarte-santos.ch')} accessory="chevron"
-            onClick={() => window.open('https://opengym.duarte-santos.ch/#download', '_blank', 'noopener')} />}
+      footer={MOBILE ? t('Releases are checked on gitlab.com. The download is verified against its checksum before the installer opens.') : t('The web app updates together with your server.')}>
+      {MOBILE && <Row icon="download" iconTint="var(--acc)"
+        title={updateInfo?.hasUpdate ? t('Update to openGym v{0}', updateInfo.latestVersion) : t('Check for updates')}
+        subtitle={checking ? t('Checking…') : t('You have v{0}', __APP_VERSION__)}
+        accessory="chevron"
+        onClick={() => (updateInfo?.hasUpdate ? onUpdateRowClick() : checkNow())} />}
     </Section>}
 
     {/* The version, at the bottom of Settings — which is where the support template has been
@@ -517,8 +512,8 @@ function effortHelpSheet() {
       ))}
     </div>
     <div className="dim small" style={{ lineHeight: 1.5, display: 'grid', gap: 8 }}>
-      <div>{t('RIR counts the reps you left; RPE reads the same effort off a 10-point scale — so RPE ≈ 10 − RIR. Pick the one you already think in.')}</div>
-      <div>{t('The highlighted row is where most working sets land. Sets you have already logged keep their own scale, and nothing else reads the value — progression and estimated 1RM are unaffected.')}</div>
+      <div>{t('RIR counts the reps you left; RPE reads the same effort off a 10-point scale, so RPE ≈ 10 − RIR. Pick the one you already think in.')}</div>
+      <div>{t('The highlighted row is where most working sets land. Sets you have already logged keep their own scale, and nothing else reads the value: progression and estimated 1RM are unaffected.')}</div>
     </div>
     <div style={{ height: 8 }} />
   </>)
@@ -585,7 +580,7 @@ function PushCard({ S, update, toast }) {
     setBusy(false)
   }
   const test = async () => {
-    try { await sendTestPush(); toast(t('Test sent — should arrive any second')) }
+    try { await sendTestPush(); toast(t('Test sent, should arrive any second')) }
     catch (e) { toast(e.message || t('Test failed')) }
   }
 
@@ -694,7 +689,7 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     if (inviteOnly && !code.trim()) { toast(t('An invite code is required')); return }
     try {
       const u = await passkeyRegister(n, code.trim()); setUser(u); close()
-      if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created — data moved into it')) }
+      if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created, data moved into it')) }
       else { await pullState(); toast(t('Welcome, {0}', u.name)) }
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Registration failed')) }
   }
@@ -706,7 +701,7 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
       <div style={{ height: 10 }} />
       <input className="input" placeholder={t('Invite code')} maxLength={40} value={code}
         onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
-      <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only — enter the code you were given.')}</div>
+      <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only, enter the code you were given.')}</div>
     </>}
     <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
   </>
